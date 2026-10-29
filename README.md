@@ -37,6 +37,9 @@ CONFIRMED
 - languages: python (Python 3.13.1), node (v22.11.0)
 - package managers: pip3, npm, pnpm, brew
 - tools: git, gh, curl, jq
+- version: node >=20 asked by package.json (engines.node); 22.11.0 installed
+MISMATCH (the project asks for a version this machine does not have)
+- python 3.12 asked by .python-version, but 3.13.1 is installed
 NOT INSTALLED (checked on PATH)
 - languages: go, rust, java, dotnet, ruby, php, deno, bun
 - tools: docker, wget, rg, ffmpeg
@@ -133,7 +136,7 @@ Then start a new session. Codex and Gemini support is new: the packages install 
 
 | When | What happens |
 | --- | --- |
-| Session start, resume, clear, compact | Probe the environment (2-second budget), save it, hand it to the agent |
+| Session start, resume, clear, compact | Probe the environment (2-second budget), compare installed versions with what the project asks for, save it, hand it to the agent |
 | Before any tool call | If this session has no probe: run one and stop the call, with the probe attached |
 | Before a shell command | If a command name is not on PATH: stop it once, list what is installed. The same command a second time goes through (it may be an alias, a shell function, or on a PATH the hook cannot see). Commands after an install in the same line are not checked |
 | Working folder changed | Re-check the folder and tell the agent |
@@ -150,7 +153,7 @@ On demand, the agent can run:
 ### What it will not do
 
 - It never answers "allow". Your own permission prompts work as before.
-- It never reads your project's files, environment variable values, or secrets. It records names and presence. For the lookup check it reads your request, tool inputs and outputs, and the final answer in memory, and keeps only the names it picked out. The only files it reads are its own `.assume-nothing.json` and system information (`/etc/os-release`, `/proc/meminfo`); it also runs `git status` to count changes.
+- It never reads your project's files, environment variable values, or secrets. It records names and presence. The exceptions are the version fields of version files (`go.mod`, `.nvmrc`, `.node-version`, `package.json` `engines`, `.python-version`, `pyproject.toml` `requires-python`, `rust-toolchain`, `.ruby-version`, `.tool-versions`), read to spot a version mismatch. For the lookup check it reads your request, tool inputs and outputs, and the final answer in memory, and keeps only the names it picked out. The only files it reads are its own `.assume-nothing.json` and system information (`/etc/os-release`, `/proc/meminfo`); it also runs `git status` to count changes.
 - It never sends anything anywhere. `deep net` sends a `HEAD` request to github.com, pypi.org and registry.npmjs.org, only when the agent asks for it.
 - If it cannot do its job, it lets the call through: an internal error, a missing binary, or a probe record that cannot be saved (a block that cannot be remembered would never end, so it becomes a warning instead). Set `ASSUME_NOTHING_STRICT=1` to keep blocking when the record cannot be saved.
 - On macOS, the stand-ins in `/usr/bin` that only open an installer (for example `git` or `python3` without the Command Line Tools) are reported as not installed, and never run.

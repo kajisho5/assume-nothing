@@ -515,6 +515,7 @@ func Environment(cwd string) []store.Fact {
 	go func() { defer wg.Done(); safe(func() { tools = ToolFacts(ctx, cfg.Tools) }) }()
 	wg.Wait()
 	out := append(append(append([]store.Fact{}, sys...), tgt...), tools...)
+	safe(func() { out = append(out, VersionFacts(cwd, tools)...) })
 	out = append(out, store.Fact{Key: "net", Status: store.Unknown, Why: "not checked at start (run the deep net probe)"})
 	return out
 }

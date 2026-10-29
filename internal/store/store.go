@@ -63,6 +63,17 @@ func (s *State) SetFacts(fs []Fact) {
 	}
 }
 
+// DropPrefix removes every fact whose key starts with prefix.
+func (s *State) DropPrefix(prefix string) {
+	kept := s.Facts[:0]
+	for _, f := range s.Facts {
+		if !strings.HasPrefix(f.Key, prefix) {
+			kept = append(kept, f)
+		}
+	}
+	s.Facts = kept
+}
+
 // Dir returns the directory where session records live.
 func Dir() (string, error) {
 	if d := os.Getenv("ASSUME_NOTHING_DATA"); d != "" {

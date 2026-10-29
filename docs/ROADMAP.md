@@ -25,17 +25,17 @@ The lookup check (v0.4) was easy to satisfy by accident or by a word.
 - [x] Handing work to a subagent, loading a skill, or writing a file never
       counts as looking something up.
 
-## v0.6: check versions, not only presence
+## v0.6: check versions, not only presence (done)
 
 The probe said `go` is installed. It did not say the project needs Go 1.27
 and the machine has 1.24, so a build silently downloaded a toolchain.
 
-- [ ] Read the version a project asks for: `go.mod` (`go`, `toolchain`),
+- [x] Read the version a project asks for: `go.mod` (`go`, `toolchain`),
       `.nvmrc` / `.node-version`, `package.json` `engines`, `.python-version`,
       `pyproject.toml` `requires-python`, `rust-toolchain(.toml)`,
       `.ruby-version`, `.tool-versions`.
-- [ ] Compare with what is installed and report a `MISMATCH` section.
-- [ ] Only these version fields are read; nothing else from project files.
+- [x] Compare with what is installed and report a `MISMATCH` section.
+- [x] Only these version fields are read; nothing else from project files.
 
 ## v0.7: cover more, and show it
 
