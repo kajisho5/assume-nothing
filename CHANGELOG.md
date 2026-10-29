@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.0] - 2026-10-30
+
+- Benchmark for the lookup check (`evals/run.py --suite lookup`): questions about fictional tools whose answers are only in the project's own docs. Results in the README.
+- The benchmark runs every condition in a clean Claude Code config with no plugins synced from an account (a synced copy of assume-nothing had been running in the "without" runs), records which plugins loaded, and keeps global npm and pip installs inside the run.
+- A shell command that contains a URL (for example a Python or Node one-liner that fetches it) counts as a lookup.
+- `ASSUME_NOTHING=off` turns every hook off.
+
 ## [0.7.0] - 2026-10-29
 
 - Subagent answers get the same lookup check (SubagentStop). Claude Code's own internal agents are left alone, and a subagent's send-back does not use up the main agent's.

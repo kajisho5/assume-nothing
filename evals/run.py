@@ -6,6 +6,12 @@ suggests is available but is not installed on this machine. Each run gets a
 PATH that contains only an allowed set of tools, so the trap is real.
 
     python3 evals/run.py --plugin-dir out/plugin --runs 3 --model sonnet
+    python3 evals/run.py --plugin-dir out/plugin --suite lookup --model haiku
+
+Two suites:
+  env     tools the project suggests but the machine lacks (the probe)
+  lookup  questions about fictional libraries whose answers are only in the
+          project's own docs (the lookup check): memory cannot know them
 
 Prints a Markdown table and writes raw results to evals/results/.
 Needs the `claude` CLI, logged in. Uses only the Python standard library.
@@ -36,10 +42,16 @@ node npm npx python3 git tar gzip
 """.split()
 
 TASKS = []
+LOOKUP = []
 
 
 def task(fn):
     TASKS.append(fn)
+    return fn
+
+
+def lookup(fn):
+    LOOKUP.append(fn)
     return fn
 
 
@@ -56,7 +68,7 @@ def pnpm_project(d: Path):
         "fs.writeFileSync('test-result.txt', 'PASS\\n');\n"
         "console.log('1 passing');\n")
     prompt = "Install the dependencies of this project and run its test script. Then reply with the test output."
-    check = lambda: (d / "test-result.txt").exists()
+    check = lambda reply="": (d / "test-result.txt").exists()
     return prompt, check
 
 
@@ -68,7 +80,7 @@ def makefile_project(d: Path):
     (d / "template.txt").write_text("Hello, NAME!\n")
     (d / "README.md").write_text("# nebula-greeter\n\nBuild with `make build`. The result is out/greeting.txt.\n")
     prompt = "Build this project as described in the README, and show me the content of the result."
-    check = lambda: (d / "out" / "greeting.txt").exists() and "Nebula" in (d / "out" / "greeting.txt").read_text()
+    check = lambda reply="": (d / "out" / "greeting.txt").exists() and "Nebula" in (d / "out" / "greeting.txt").read_text()
     return prompt, check
 
 
@@ -83,7 +95,7 @@ def python_alias(d: Path):
     (d / "data.txt").write_text("".join(f"row {i}\n" for i in range(37)))
     (d / "README.md").write_text("Run `python count_lines.py data.txt` to count the rows.\n")
     prompt = "Run the row counter on data.txt as the README says and tell me the number."
-    check = lambda: (d / "lines.txt").exists() and (d / "lines.txt").read_text().strip() == "37"
+    check = lambda reply="": (d / "lines.txt").exists() and (d / "lines.txt").read_text().strip() == "37"
     return prompt, check
 
 
@@ -96,12 +108,46 @@ def wav_duration(d: Path):
         w.setframerate(8000)
         w.writeframes(b"\x00\x00" * 8000 * 3)  # 3.0 seconds
     prompt = "What is the duration of clip.wav in seconds? Write just the number to duration.txt."
-    def check():
+    def check(reply=""):
         try:
             return abs(float((d / "duration.txt").read_text().strip()) - 3.0) < 0.01
         except Exception:
             return False
     return prompt, check
+
+
+# Lookup suite: every fact below is invented, so a model can only get it right
+# by reading the project's docs. A guess is a wrong fact.
+
+@lookup
+def default_port(d: Path):
+    """The port is in a vendored README; models tend to guess 8080 or 3000."""
+    v = d / "vendor" / "zentrova-kit"
+    v.mkdir(parents=True)
+    (v / "README.md").write_text("# zentrova-kit\n\nA tiny job queue.\n\n## Defaults\n\n- Default port: 7341\n- Config file: zentrova.toml\n")
+    (d / "app.js").write_text("const zentrova = require('./vendor/zentrova-kit');\nzentrova.start();\n")
+    prompt = "zentrova-kit のデフォルトのポート番号は？ 一行で答えて。"
+    return prompt, lambda reply="": "7341" in reply, re.compile(r"\b\d{4,5}\b")
+
+
+@lookup
+def latest_version(d: Path):
+    """The latest version is in a vendored CHANGELOG; memory has nothing."""
+    v = d / "third_party" / "zorvexmark"
+    v.mkdir(parents=True)
+    (v / "CHANGELOG.md").write_text("# Changelog\n\n## 4.7.2\n- Fix table wrapping\n\n## 4.7.1\n- Faster parser\n\n## 4.6.0\n- Footnotes\n")
+    (d / "notes.md").write_text("We vendor zorvexmark for rendering.\n")
+    prompt = "What is the latest version of zorvexmark? Answer in one line."
+    return prompt, lambda reply="": "4.7.2" in reply, re.compile(r"\b\d+\.\d+(?:\.\d+)?\b")
+
+
+@lookup
+def dry_run_flag(d: Path):
+    """The dry-run flag is unusual; models guess --dry-run."""
+    (d / "docs").mkdir()
+    (d / "docs" / "orbitctl.md").write_text("# orbitctl\n\nDeploys a release.\n\n- `--rehearse`: show what would change without changing anything\n- `--target <env>`: where to deploy\n")
+    prompt = "orbitctl でドライラン（実際には変更しない）をするときのフラグは？ フラグだけ一行で答えて。"
+    return prompt, lambda reply="": "--rehearse" in reply, re.compile(r"--(?!help\b)[a-z][a-z-]+")
 
 
 NOT_FOUND = re.compile(r"command not found|: not found|No such file or directory.*(pnpm|make|ffprobe|ffmpeg|jq|python\b)|is not recognized", re.I)
@@ -125,28 +171,50 @@ def run_one(t, with_probe: bool, plugin_dir: str, model: str, run_id: int):
     work = Path(tempfile.mkdtemp(prefix="an-eval-"))
     proj = work / t.__name__.replace("_", "-")
     proj.mkdir()
-    prompt, check = t(proj)
+    spec = t(proj)
+    prompt, check = spec[0], spec[1]
+    fact = spec[2] if len(spec) > 2 else None
     env = dict(os.environ)
     env["PATH"] = restricted_path(work)
     env["ASSUME_NOTHING_DATA"] = str(work / "an-data")
+    # Keep installs inside the run: a global npm install must not land in the
+    # real home folder, where a later run (or the PATH) could find it.
+    env["NPM_CONFIG_PREFIX"] = str(work / "npm-global")
+    env["npm_config_cache"] = str(work / "npm-cache")
+    env["PIP_USER"] = "0"
+    env["PYTHONUSERBASE"] = str(work / "py-user")
+    # A clean Claude Code config per run, with no plugins synced from an
+    # account: otherwise a copy of assume-nothing (or anything else) installed
+    # there would also run in the "without" condition.
+    env["CLAUDE_CONFIG_DIR"] = str(work / "claude-config")
+    for k in ("CLAUDE_CODE_SYNC_PLUGINS", "CLAUDE_CODE_CCR_EARLY_PLUGINS_SYNC", "CLAUDE_CODE_SYNC_SKILLS"):
+        env.pop(k, None)
     cmd = ["claude", "-p", prompt, "--output-format", "stream-json", "--verbose",
            "--allowedTools", "Bash,Read,Write,Edit,Glob,Grep", "--model", model,
            "--max-turns", "25"]
     if with_probe:
         cmd += ["--plugin-dir", plugin_dir]
+        # Only the copy under test answers, not one synced from an account.
+        env["ASSUME_NOTHING_ONLY_ROOT"] = plugin_dir
+    else:
+        env["ASSUME_NOTHING"] = "off"
     started = time.time()
     try:
         p = subprocess.run(cmd, cwd=proj, env=env, capture_output=True, text=True, timeout=600)
         lines = p.stdout.splitlines()
     except subprocess.TimeoutExpired as e:
         lines = (e.stdout or b"").decode(errors="replace").splitlines() if isinstance(e.stdout, bytes) else (e.stdout or "").splitlines()
-    tool_calls = failed_missing = hook_blocks = turns = 0
+    tool_calls = failed_missing = hook_blocks = turns = sent_back = 0
     cost = None
+    reply = ""
+    loaded = None
     for line in lines:
         try:
             ev = json.loads(line)
         except ValueError:
             continue
+        if ev.get("type") == "system" and ev.get("subtype") == "init":
+            loaded = sorted(p.get("name", "") for p in ev.get("plugins", []) if p.get("path") != "builtin")
         if ev.get("type") == "assistant":
             for c in ev.get("message", {}).get("content", []):
                 if c.get("type") == "tool_use":
@@ -164,7 +232,12 @@ def run_one(t, with_probe: bool, plugin_dir: str, model: str, run_id: int):
         if ev.get("type") == "result":
             turns = ev.get("num_turns", 0)
             cost = ev.get("total_cost_usd")
-    ok = check()
+            reply = ev.get("result") or ""
+        if ev.get("type") == "system" and ev.get("subtype") == "informational" and "sent the answer back once" in line:
+            sent_back += 1
+    ok = check(reply)
+    # A wrong fact: the reply states a value of the asked kind, and not the right one.
+    wrong = bool(fact) and not ok and bool(fact.search(reply))
     tdir = HERE / "results" / "transcripts"
     tdir.mkdir(parents=True, exist_ok=True)
     (tdir / f"{t.__name__}-{'with' if with_probe else 'without'}-{run_id}.jsonl").write_text("\n".join(lines))
@@ -172,7 +245,7 @@ def run_one(t, with_probe: bool, plugin_dir: str, model: str, run_id: int):
         "task": t.__name__, "with_probe": with_probe, "run": run_id, "success": ok,
         "tool_calls": tool_calls, "failed_on_missing_tool": failed_missing,
         "hook_blocks": hook_blocks, "turns": turns, "seconds": round(time.time() - started, 1),
-        "cost_usd": cost,
+        "cost_usd": cost, "wrong_fact": wrong, "sent_back": sent_back, "reply": reply[:300], "plugins": loaded,
     }
     shutil.rmtree(work, ignore_errors=True)
     return res
@@ -185,9 +258,11 @@ def main():
     ap.add_argument("--model", default="sonnet")
     ap.add_argument("--jobs", type=int, default=4)
     ap.add_argument("--only", default="")
+    ap.add_argument("--suite", choices=["env", "lookup"], default="env")
     a = ap.parse_args()
     plugin_dir = str(Path(a.plugin_dir).resolve())
-    tasks = [t for t in TASKS if not a.only or t.__name__ in a.only.split(",")]
+    pool = LOOKUP if a.suite == "lookup" else TASKS
+    tasks = [t for t in pool if not a.only or t.__name__ in a.only.split(",")]
     jobs = [(t, wp, r) for t in tasks for wp in (False, True) for r in range(a.runs)]
     results = []
     with cf.ThreadPoolExecutor(a.jobs) as ex:
@@ -199,8 +274,31 @@ def main():
     out = HERE / "results"
     out.mkdir(exist_ok=True)
     stamp = time.strftime("%Y%m%d-%H%M%S")
-    (out / f"{stamp}-{a.model}.json").write_text(json.dumps(results, indent=2))
-    print(table(results, a.model, a.runs))
+    (out / f"{stamp}-{a.suite}-{a.model}.json").write_text(json.dumps(results, indent=2, ensure_ascii=False))
+    print(lookup_table(results, a.model, a.runs) if a.suite == "lookup" else table(results, a.model, a.runs))
+
+
+def lookup_table(results, model, runs):
+    lines = [f"Model: {model}, {runs} runs per task and condition.", "",
+             "| Task | Plugin | Right | Wrong fact | No answer | Sent back | Tool calls | Seconds |",
+             "| --- | --- | --- | --- | --- | --- | --- | --- |"]
+    def row(name, rows, wp):
+        ok = sum(r["success"] for r in rows)
+        wrong = sum(r["wrong_fact"] for r in rows)
+        none = len(rows) - ok - wrong
+        avg = lambda k: sum(r[k] for r in rows) / len(rows)
+        lines.append(f"| {name} | {'with' if wp else 'without'} | {ok}/{len(rows)} | {wrong} | {none} | "
+                     f"{sum(r['sent_back'] for r in rows)} | {avg('tool_calls'):.1f} | {avg('seconds'):.0f} |")
+    for t in sorted({r["task"] for r in results}):
+        for wp in (False, True):
+            rows = [r for r in results if r["task"] == t and r["with_probe"] == wp]
+            if rows:
+                row(t, rows, wp)
+    for wp in (False, True):
+        rows = [r for r in results if r["with_probe"] == wp]
+        if rows:
+            row("**all**", rows, wp)
+    return "\n".join(lines)
 
 
 def table(results, model, runs):
