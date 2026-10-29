@@ -143,7 +143,9 @@ Then start a new session. Codex and Gemini support is new: the packages install 
 | After an install command (`pip install`, `npm i`, `brew install`, …) | Re-check tools and report what changed |
 | A request comes in | Note the things it names and tell the agent they are UNKNOWN until looked up. If the session has no probe yet (the plugin arrived after the session started), probe here |
 | After any tool call | Note which named things it looked at |
-| The agent is about to finish | If the answer is about a named thing nothing looked at, send it back once. The second time it goes through |
+| The agent (or a subagent) is about to finish | If the answer is about a named thing nothing looked at, send it back once and tell the user in one line. The second time it goes through |
+
+To see what it did in the latest session, ask the agent to run `assume-nothing status` (the path is on the probe's "Deeper checks" line, with `status` in place of `deep`): what was probed, which commands were stopped, which names were looked up and how, and how many answers were sent back.
 
 On demand, the agent can run:
 

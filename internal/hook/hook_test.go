@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -435,5 +436,68 @@ func TestFreshHedgeStillSentBackOnce(t *testing.T) {
 	event(t, "user-prompt-submit", map[string]any{"session_id": "fh", "prompt": "Quillmarkについて教えて"})
 	if out := event(t, "stop", map[string]any{"session_id": "fh", "last_assistant_message": "Quillmark はエディタです（記憶に基づく回答で、検証はしていません）。"}); out != nil {
 		t.Fatalf("hedged answer sent back: %+v", out)
+	}
+}
+
+func TestSubagentStopAndNotice(t *testing.T) {
+	setup(t)
+	t.Setenv("CLAUDE_PROJECT_DIR", "/work/nebula")
+	dir := project(t)
+	event(t, "session-start", map[string]any{"session_id": "sa", "cwd": dir})
+	event(t, "user-prompt-submit", map[string]any{"session_id": "sa", "prompt": "lumen-kitについて調べて"})
+	sub := map[string]any{"session_id": "sa", "agent_id": "a1", "agent_type": "Explore", "last_assistant_message": "lumen-kit has 40 widgets."}
+	out := event(t, "subagent-stop", sub)
+	if out == nil {
+		t.Fatal("subagent answer without a lookup not sent back")
+	}
+	b, _ := Encode(out, Claude)
+	for _, want := range []string{`"hookEventName":"SubagentStop"`, `"systemMessage":"assume-nothing: sent a subagent's answer back once`} {
+		if !strings.Contains(string(b), want) {
+			t.Errorf("encoded lacks %s: %s", want, b)
+		}
+	}
+	// Claude Code's internal agents have no type and are left alone.
+	if out := event(t, "subagent-stop", map[string]any{"session_id": "sa", "last_assistant_message": "lumen-kit has 40 widgets."}); out != nil {
+		t.Fatal("internal agent checked")
+	}
+	// The subagent's send-back does not use up the main agent's.
+	if out := event(t, "stop", map[string]any{"session_id": "sa", "last_assistant_message": "lumen-kit has 40 widgets."}); out == nil {
+		t.Fatal("main agent not checked after a subagent send-back")
+	}
+	s, err := Status("sa")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"lumen-kit: NOT looked up", "answers sent back: 2", "requests: 1"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("status lacks %q:\n%s", want, s)
+		}
+	}
+}
+
+func TestParallelFolderChangeNotedOnce(t *testing.T) {
+	setup(t)
+	dir := project(t)
+	event(t, "session-start", map[string]any{"session_id": "pc", "cwd": dir})
+	other := project(t)
+	var mu sync.Mutex
+	notes := 0
+	var wg sync.WaitGroup
+	for i := 0; i < 4; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			b, _ := json.Marshal(map[string]any{"session_id": "pc", "cwd": other, "tool_name": "Read", "tool_input": map[string]any{}})
+			out, _ := Run("pre-tool-use", b)
+			if out != nil && strings.Contains(out.HookSpecificOutput.AdditionalContext, "working folder changed") {
+				mu.Lock()
+				notes++
+				mu.Unlock()
+			}
+		}()
+	}
+	wg.Wait()
+	if notes != 1 {
+		t.Fatalf("folder change noted %d times, want 1", notes)
 	}
 }
