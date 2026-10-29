@@ -82,7 +82,7 @@ func hookEntry(event string) map[string]any {
 	}
 	return map[string]any{
 		"type":    "command",
-		"command": `"$CLAUDE_PROJECT_DIR"/` + Launcher + " hook " + event,
+		"command": `sh "$CLAUDE_PROJECT_DIR/` + Launcher + `" hook ` + event,
 		"timeout": timeout,
 	}
 }

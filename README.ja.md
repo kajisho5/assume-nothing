@@ -49,6 +49,10 @@ Claude Code で次の2行を実行し、新しい会話を始めます。
 /plugin install assume-nothing@assume-nothing
 ```
 
+Claude アプリ（ブラウザ・デスクトップ・iPhone で、AIがクラウドのマシンで作業する会話）で使う場合:
+
+アカウントに1回追加すれば、その種類の会話と Claude Code に同期されます。[claude.ai/customize/plugins](https://claude.ai/customize/plugins) を開いて **追加（Add）→ プラグインをアップロード（Upload plugin）** を押し、[最新リリース](https://github.com/kajisho5/assume-nothing/releases/latest) の `assume-nothing-plugin.zip` を選びます。追加したあとに新しい会話を始めてください。普通のチャットはプラグインのフックを動かさない（コマンドも打たない）ので、そこでは出番がありません。
+
 クラウド版の Claude Code（ブラウザや iPhone の Claude アプリから使うもの）と、チーム全員で使う場合:
 
 クラウド版はプラグインを入れませんが、リポに書いてあるフックは動かします。リポごとに1回、そのリポで開いた会話（iPhone から始めたクラウドの会話でも可）で、AIに次を実行してもらい、追加されたファイルをコミットしてもらいます。

@@ -46,5 +46,16 @@ for f in "$out/plugin/.claude-plugin/plugin.json" "$out/plugin/.codex-plugin/plu
   sed -i.bak "s/\"version\": *\"[^\"]*\"/\"version\": \"$version\"/" "$f" && rm -f "$f.bak"
 done
 
+# a zip of the plugin, for Claude's Customize > Plugins > Upload plugin
+python3 - "$out/plugin" "$out/assets/assume-nothing-plugin.zip" <<'PY'
+import os, sys, zipfile
+src, dst = sys.argv[1], sys.argv[2]
+with zipfile.ZipFile(dst, "w", zipfile.ZIP_DEFLATED) as z:
+    for r, _, fs in os.walk(src):
+        for f in sorted(fs):
+            p = os.path.join(r, f)
+            z.write(p, os.path.relpath(p, src))
+PY
+
 (cd "$out/assets" && if command -v sha256sum >/dev/null 2>&1; then sha256sum assume-nothing-* > checksums.txt; else shasum -a 256 assume-nothing-* > checksums.txt; fi)
 echo "plugin laid out in $out/plugin, Gemini extension in $out/gemini"

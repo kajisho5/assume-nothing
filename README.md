@@ -73,6 +73,10 @@ Read it honestly: every run succeeded either way. What changes is how the agent 
 /plugin install assume-nothing@assume-nothing
 ```
 
+**The Claude app (agentic sessions on the web, desktop and phone)**
+
+Add it to your Claude account once, and it syncs into the app's agentic sessions (the ones where Claude works in a cloud workspace and runs commands) and into Claude Code. Open [claude.ai/customize/plugins](https://claude.ai/customize/plugins), choose **Add > Upload plugin**, and upload `assume-nothing-plugin.zip` from the [latest release](https://github.com/kajisho5/assume-nothing/releases/latest). Start a new session afterwards. Plain chat does not run plugin hooks, so there is nothing to probe there.
+
 **Cloud sessions (Claude Code from a browser or the Claude phone app), and whole teams**
 
 Cloud sessions do not install plugins, but they do run hooks committed in a repository. Set it up once per repository, from any session on it (a cloud session started from your phone works), by asking Claude to run:
