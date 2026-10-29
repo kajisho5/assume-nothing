@@ -8,6 +8,8 @@ A plugin for Claude Code (and Codex CLI and Gemini CLI) that makes the agent loo
 2. **No probe, no tools.** Until that probe exists, every tool call is stopped. The stop message carries the probe, so the agent reads it and goes on.
 3. **No phantom commands.** A shell command that is not installed is stopped before it runs, with the list of what *is* installed.
 
+![Without vs with assume-nothing: the agent without it runs `python` and fails; with it, the probe says only `python3` exists and the first try works](docs/demo/demo.gif)
+
 [日本語](README.ja.md)
 
 ---

@@ -1,11 +1,22 @@
 {
   "name": "assume-nothing",
   "displayName": "Assume Nothing",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Your agent promised not to assume. Now it can't. Probes the environment before any tool runs, and blocks commands that are not installed.",
-  "author": { "name": "kajisho5", "url": "https://github.com/kajisho5" },
+  "author": {
+    "name": "kajisho5",
+    "url": "https://github.com/kajisho5"
+  },
   "homepage": "https://github.com/kajisho5/assume-nothing",
   "repository": "https://github.com/kajisho5/assume-nothing",
   "license": "MIT",
-  "keywords": ["hooks", "probe", "environment", "hallucination", "agent", "preflight"]
+  "keywords": [
+    "hooks",
+    "probe",
+    "environment",
+    "hallucination",
+    "agent",
+    "preflight"
+  ],
+  "icon": "./.claude-plugin/icon.png"
 }

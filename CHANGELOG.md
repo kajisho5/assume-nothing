@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.2.2] - 2026-10-29
+
+- Demo animation in the README (`docs/demo/`, rendered from recorded benchmark runs by `make_demo.py`).
+- Plugin icon.
+
 ## [0.2.1] - 2026-10-29
 
 - The probe names the command it actually found (`python3`, not just `python`) and lists the missing alias (`commands: python`). In the benchmark, agents read "python" and typed `python`.
