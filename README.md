@@ -73,6 +73,18 @@ Read it honestly: every run succeeded either way. What changes is how the agent 
 /plugin install assume-nothing@assume-nothing
 ```
 
+**Cloud sessions (Claude Code from a browser or the Claude phone app), and whole teams**
+
+Cloud sessions do not install plugins, but they do run hooks committed in a repository. Set it up once per repository, from any session on it (a cloud session started from your phone works), by asking Claude to run:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/kajisho5/assume-nothing/main/scripts/setup-repo.sh | sh
+```
+
+and to commit what it adds (`.claude/assume-nothing/run.sh` and three hooks in `.claude/settings.json`). From then on every Claude Code session on that repository probes first: cloud sessions, your laptop, your teammates. On first use the launcher downloads the pinned release for the machine and checks its SHA-256; if anything fails it stays silent and lets the agent work. Remove it with `.claude/assume-nothing/run.sh install-repo --remove`.
+
+Cloud sessions load a repository's hooks only when the session has that one repository, and the download needs network access to GitHub (allowed by the default "Trusted" level).
+
 **Codex CLI** (experimental)
 
 ```sh

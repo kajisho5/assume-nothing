@@ -49,6 +49,18 @@ Claude Code で次の2行を実行し、新しい会話を始めます。
 /plugin install assume-nothing@assume-nothing
 ```
 
+クラウド版の Claude Code（ブラウザや iPhone の Claude アプリから使うもの）と、チーム全員で使う場合:
+
+クラウド版はプラグインを入れませんが、リポに書いてあるフックは動かします。リポごとに1回、そのリポで開いた会話（iPhone から始めたクラウドの会話でも可）で、AIに次を実行してもらい、追加されたファイルをコミットしてもらいます。
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/kajisho5/assume-nothing/main/scripts/setup-repo.sh | sh
+```
+
+追加されるのは `.claude/assume-nothing/run.sh` と、`.claude/settings.json` の3つのフックです。以後、そのリポで開く Claude Code はすべて、最初に下調べをします（クラウド、自分のパソコン、チームの人）。最初の1回だけ、その機械に合った実行ファイルを GitHub から取ってきて、改ざんがないか確かめてから使います。うまくいかないときは黙って通すので、AIが動けなくなることはありません。外すときは `.claude/assume-nothing/run.sh install-repo --remove`。
+
+条件：クラウドの会話がそのリポ1つだけを開いていること。GitHub への通信が許可されていること（標準の「Trusted」設定なら許可されています）。
+
 Codex CLI（試験対応）:
 
 ```sh
