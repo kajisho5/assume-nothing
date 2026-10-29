@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.9.0] - 2026-10-30
+
+Names and hedges in more languages. Matching (did a tool look at it, does the answer mention it) already worked in any script; picking names out of a request did not.
+
+- Quoted names in any script: 「一太郎」, 『별빛노트』, «Nebulina», "Nebulina".
+- Japanese: names mixing kanji with katakana or Latin letters before 「について」「とは」「を調べて」 (「秀丸エディタについて調べて」). A name written only in kanji is taken when quoted; unquoted, it cannot be told from an ordinary word (「原因を調べて」).
+- Chinese (关于X, X是什么, 查一下X, X的最新) and Korean (X에 대해, X란, X의 최신).
+- Questions about prices and latest versions, and "not verified" phrases, in Chinese, Korean, Spanish, French and German.
+- More everyday words (ログ, テスト, 原因, 設定, …) are never taken as names.
+
 ## [0.8.0] - 2026-10-30
 
 - Benchmark for the lookup check (`evals/run.py --suite lookup`): questions about fictional tools whose answers are only in the project's own docs. Results in the README.
