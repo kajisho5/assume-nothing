@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.0] - 2026-10-30
+
+- Cursor support (experimental): `scripts/setup.sh cursor` adds the hooks to `~/.cursor/hooks.json` for every project, in Cursor's own format (`additional_context`, `permission`, `followup_message`). The answer check reads the reply from `afterAgentResponse`, since Cursor's `stop` does not carry it. When Cursor runs hooks written for Claude Code (from `.claude/settings.json`), the binary answers in Cursor's format too.
+- OpenCode support (experimental): `scripts/setup.sh opencode` adds a small plugin that stops the first tool call with the probe and stops commands that are not installed. The answer check is not available there.
+- Every Claude Code hook has `"onFailure": "continue"`, so a hook that cannot run (for example on Windows without Git Bash, where `sh` is missing) never blocks the agent. Codex gets the same hooks without that field.
+- `scripts/setup.sh cursor|opencode|repo [--remove]`: one installer for all of them.
+
 ## [0.9.0] - 2026-10-30
 
 Names and hedges in more languages. Matching (did a tool look at it, does the answer mention it) already worked in any script; picking names out of a request did not.

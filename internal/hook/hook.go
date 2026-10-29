@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -37,6 +38,30 @@ type Input struct {
 	PromptResp    string          `json:"prompt_response"` // Gemini's AfterAgent
 	AgentID       string          `json:"agent_id"`        // SubagentStop
 	AgentType     string          `json:"agent_type"`      // SubagentStop
+
+	// Cursor names some of these differently.
+	ConversationID string          `json:"conversation_id"`
+	WorkspaceRoots []string        `json:"workspace_roots"`
+	ToolOutput     json.RawMessage `json:"tool_output"`
+	LoopCount      int             `json:"loop_count"`
+	Text           string          `json:"text"` // afterAgentResponse
+	CursorVersion  string          `json:"cursor_version"`
+}
+
+// normalize fills the Claude Code field names from other agents' names.
+func (in *Input) normalize() {
+	if in.SessionID == "" {
+		in.SessionID = in.ConversationID
+	}
+	if in.Cwd == "" && len(in.WorkspaceRoots) > 0 {
+		in.Cwd = in.WorkspaceRoots[0]
+	}
+	if len(in.ToolResponse) == 0 && len(in.ToolOutput) > 0 {
+		in.ToolResponse = in.ToolOutput
+	}
+	if in.LoopCount > 0 {
+		in.StopActive = true // Cursor: this stop already sent a follow-up
+	}
 }
 
 // Output is what the hook prints on stdout. Nil means "say nothing".
@@ -124,7 +149,7 @@ func SessionStart(in Input) *Output {
 
 // shellTools are the shell tool names of the supported agents:
 // Claude Code and Codex ("Bash"), Gemini CLI ("run_shell_command").
-var shellTools = map[string]bool{"Bash": true, "run_shell_command": true}
+var shellTools = map[string]bool{"Bash": true, "run_shell_command": true, "Shell": true, "bash": true}
 
 func bashCommand(in Input) string {
 	if !shellTools[in.ToolName] {
@@ -255,10 +280,12 @@ var writeTools = map[string]bool{
 	// something up; the subagent's own tool calls are checked on their own.
 	"Agent": true, "Task": true, "SubagentHandback": true, "Skill": true, "ToolSearch": true,
 	"TaskList": true, "TaskGet": true, "TaskStop": true, "EnterPlanMode": true, "ExitPlanMode": true,
+	// Cursor and OpenCode
+	"Delete": true, "write": true, "edit": true, "patch": true, "todowrite": true, "todoread": true, "task": true,
 }
 
 // webTools fetch or search the web.
-var webTools = map[string]bool{"WebFetch": true, "WebSearch": true, "web_fetch": true, "google_web_search": true}
+var webTools = map[string]bool{"WebFetch": true, "WebSearch": true, "web_fetch": true, "google_web_search": true, "webfetch": true, "websearch": true}
 
 // netCommand matches a shell command that reaches the network to look something up.
 var netCommand = regexp.MustCompile(`https?://|(?:^|[\s;&|(])(?:curl|wget|gh|http|xh|git\s+(?:ls-remote|fetch|clone)|npm\s+(?:view|info|show|search)|pnpm\s+view|yarn\s+info|pip3?\s+(?:index|download)|uv\s+pip\s+index|cargo\s+(?:search|info)|go\s+list\s+-m|brew\s+info)\b`)
@@ -266,7 +293,7 @@ var netCommand = regexp.MustCompile(`https?://|(?:^|[\s;&|(])(?:curl|wget|gh|htt
 // isLookup reports whether a tool call looks something up outside the
 // machine: the web, an MCP server, or a network command.
 func isLookup(in Input) bool {
-	if webTools[in.ToolName] || strings.HasPrefix(in.ToolName, "mcp__") || strings.HasPrefix(in.ToolName, "mcp_") {
+	if webTools[in.ToolName] || strings.HasPrefix(in.ToolName, "mcp__") || strings.HasPrefix(in.ToolName, "mcp_") || strings.HasPrefix(in.ToolName, "MCP:") {
 		return true
 	}
 	return netCommand.MatchString(bashCommand(in))
@@ -428,6 +455,9 @@ func stopCheck(in Input, scope, event string) *Output {
 	if msg == "" {
 		msg = in.PromptResp
 	}
+	if msg == "" {
+		msg = lastAnswer(in.SessionID)
+	}
 	if strings.TrimSpace(msg) == "" {
 		return nil
 	}
@@ -506,6 +536,29 @@ func stopCheck(in Input, scope, event string) *Output {
 		"If you did check it with something this hook cannot see (for example a hosted web search), say where you read it, then finish."}
 }
 
+// AfterAgentResponse keeps the agent's latest answer for a stop hook that
+// does not receive it (Cursor).
+func AfterAgentResponse(in Input) *Output {
+	if p, err := store.LastPath(in.SessionID); err == nil && strings.TrimSpace(in.Text) != "" {
+		_ = os.MkdirAll(filepath.Dir(p), 0o700)
+		_ = os.WriteFile(p, []byte(in.Text), 0o600)
+	}
+	return nil
+}
+
+func lastAnswer(session string) string {
+	p, err := store.LastPath(session)
+	if err != nil {
+		return ""
+	}
+	b, err := os.ReadFile(p)
+	if err != nil {
+		return ""
+	}
+	_ = os.Remove(p) // one answer, one check
+	return string(b)
+}
+
 func deny(reason string) *Output {
 	return &Output{HookSpecificOutput: &Specific{HookEventName: "PreToolUse", PermissionDecision: "deny", PermissionDecisionReason: reason}}
 }
@@ -522,11 +575,12 @@ func Run(event string, data []byte) (*Output, error) {
 			return nil, fmt.Errorf("bad hook input: %w", err)
 		}
 	}
+	in.normalize()
 	if in.SessionID == "" {
 		in.SessionID = "default"
 	}
 	switch event {
-	case "stop", "Stop", "AfterAgent", "subagent-stop", "SubagentStop":
+	case "stop", "Stop", "AfterAgent", "subagent-stop", "SubagentStop", "subagentStop", "after-agent-response", "afterAgentResponse":
 		// these only read and append to the target log
 	default:
 		// Parallel tool calls each run a hook process; one at a time per
@@ -534,18 +588,20 @@ func Run(event string, data []byte) (*Output, error) {
 		defer store.Lock(in.SessionID)()
 	}
 	switch event {
-	case "session-start", "SessionStart":
+	case "session-start", "SessionStart", "sessionStart":
 		return SessionStart(in), nil
-	case "pre-tool-use", "PreToolUse", "BeforeTool":
+	case "pre-tool-use", "PreToolUse", "BeforeTool", "preToolUse":
 		return PreToolUse(in), nil
-	case "post-tool-use", "PostToolUse", "AfterTool":
+	case "post-tool-use", "PostToolUse", "AfterTool", "postToolUse":
 		return PostToolUse(in), nil
-	case "user-prompt-submit", "UserPromptSubmit", "BeforeAgent":
+	case "user-prompt-submit", "UserPromptSubmit", "BeforeAgent", "beforeSubmitPrompt":
 		return UserPromptSubmit(in), nil
 	case "stop", "Stop", "AfterAgent":
 		return Stop(in), nil
-	case "subagent-stop", "SubagentStop":
+	case "subagent-stop", "SubagentStop", "subagentStop":
 		return SubagentStop(in), nil
+	case "after-agent-response", "afterAgentResponse":
+		return AfterAgentResponse(in), nil
 	}
 	return nil, fmt.Errorf("unknown hook event %q", event)
 }
@@ -555,6 +611,7 @@ const (
 	Claude = "claude" // Claude Code
 	Codex  = "codex"  // Codex CLI: same input and output shape as Claude Code
 	Gemini = "gemini" // Gemini CLI: BeforeTool / AfterTool, top-level decision
+	Cursor = "cursor" // Cursor: flat permission / additional_context / followup_message
 )
 
 // DetectAgent refines the agent named on the command line. Codex reads the
@@ -562,13 +619,17 @@ const (
 // carries a turn_id and Claude Code sets CLAUDE_PROJECT_DIR. When unsure it
 // answers Codex, whose shapes Claude Code also accepts.
 func DetectAgent(data []byte, agent string) string {
+	var probe struct {
+		TurnID        string `json:"turn_id"`
+		CursorVersion string `json:"cursor_version"`
+	}
+	_ = json.Unmarshal(data, &probe)
+	if probe.CursorVersion != "" {
+		return Cursor // also when Cursor runs hooks written for Claude Code
+	}
 	if agent != Claude {
 		return agent
 	}
-	var probe struct {
-		TurnID string `json:"turn_id"`
-	}
-	_ = json.Unmarshal(data, &probe)
 	if probe.TurnID != "" || os.Getenv("CLAUDE_PROJECT_DIR") == "" {
 		return Codex
 	}
@@ -580,6 +641,9 @@ func DetectAgent(data []byte, agent string) string {
 func Encode(out *Output, agent string) ([]byte, error) {
 	if out == nil || (out.HookSpecificOutput == nil && out.Decision == "") {
 		return nil, nil
+	}
+	if agent == Cursor {
+		return encodeCursor(out)
 	}
 	if agent == Claude {
 		// Claude Code continues the turn on Stop additionalContext too, and shows
@@ -620,4 +684,31 @@ func Encode(out *Output, agent string) ([]byte, error) {
 		return nil, nil
 	}
 	return json.Marshal(map[string]any{"hookSpecificOutput": map[string]string{"hookEventName": ev, "additionalContext": s.AdditionalContext}})
+}
+
+// encodeCursor answers in Cursor's own hook format.
+func encodeCursor(out *Output) ([]byte, error) {
+	if out.Decision == "block" {
+		// stop / subagentStop: the follow-up is sent as the next message.
+		return json.Marshal(map[string]string{"followup_message": out.Reason})
+	}
+	s := out.HookSpecificOutput
+	if s == nil {
+		return nil, nil
+	}
+	if s.PermissionDecision == "deny" {
+		m := map[string]string{"permission": "deny", "agent_message": s.PermissionDecisionReason}
+		if out.Notice != "" {
+			m["user_message"] = out.Notice
+		}
+		return json.Marshal(m)
+	}
+	switch s.HookEventName {
+	case "SessionStart", "PostToolUse":
+		if s.AdditionalContext != "" {
+			return json.Marshal(map[string]string{"additional_context": s.AdditionalContext})
+		}
+	}
+	// Cursor's preToolUse and beforeSubmitPrompt cannot add context; say nothing.
+	return nil, nil
 }

@@ -58,6 +58,7 @@ and the machine has 1.24, so a build silently downloaded a toolchain.
 
 - Optional text check on top of the behavior check: a small model flags
   concrete claims (versions, prices, defaults) stated as certain.
-- Cursor and OpenCode adapters.
+- [x] Cursor and OpenCode adapters (v0.10, experimental; OpenCode without the answer check).
+- [x] Hooks never block on Windows without Git Bash (`onFailure: continue`, v0.10).
 - Live runs in Codex CLI and Gemini CLI (needs accounts for those tools).
-- A PowerShell entry point for Windows without Git Bash.
+- Claude Code on Windows without Git Bash running the hooks (not only skipping them): needs one command line that both sh and PowerShell run, or a per-OS hooks file.
