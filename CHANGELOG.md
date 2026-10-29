@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.2.1] - 2026-10-29
+
+- The probe names the command it actually found (`python3`, not just `python`) and lists the missing alias (`commands: python`). In the benchmark, agents read "python" and typed `python`.
+- A/B benchmark (`evals/run.py`) and its first results in the README.
+
 ## [0.2.0] - 2026-10-29
 
 - Codex CLI support: the same plugin installs as a Codex plugin (`codex plugin marketplace add kajisho5/assume-nothing@dist`).

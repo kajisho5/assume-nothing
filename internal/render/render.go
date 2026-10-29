@@ -42,7 +42,7 @@ func Snapshot(st *store.State, deepCmd string) string {
 	line("agent instruction files present", "instructions")
 
 	var langs, pms, tools []string
-	var missLang, missPM, missTool []string
+	var missLang, missPM, missTool, missCmd []string
 	var unknown []string
 	for _, f := range st.Facts {
 		short := f.Key[strings.IndexByte(f.Key, '.')+1:]
@@ -56,6 +56,8 @@ func Snapshot(st *store.State, deepCmd string) string {
 			default:
 				unknown = append(unknown, short+": "+f.Why)
 			}
+		case strings.HasPrefix(f.Key, "cmd.") && f.Status == store.Missing:
+			missCmd = append(missCmd, short)
 		case strings.HasPrefix(f.Key, "pm."):
 			if f.Status == store.OK {
 				pms = append(pms, short)
@@ -103,6 +105,9 @@ func Snapshot(st *store.State, deepCmd string) string {
 	}
 
 	b.WriteString("NOT INSTALLED (checked on PATH)\n")
+	if len(missCmd) > 0 {
+		fmt.Fprintf(&b, "- commands: %s (use the names listed above instead)\n", strings.Join(missCmd, ", "))
+	}
 	if len(missLang) > 0 {
 		fmt.Fprintf(&b, "- languages: %s\n", strings.Join(missLang, ", "))
 	}

@@ -13,14 +13,15 @@ func TestSnapshotSections(t *testing.T) {
 	st.TakenAt = time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
 	st.Facts = []store.Fact{
 		{Key: "os", Status: store.OK, Value: "Linux (amd64)"},
-		{Key: "lang.python", Status: store.OK, Value: "Python 3.99.0"},
+		{Key: "lang.python", Status: store.OK, Value: "python3: Python 3.99.0"},
+		{Key: "cmd.python", Status: store.Missing},
 		{Key: "lang.rust", Status: store.Missing},
 		{Key: "tool.ffmpeg", Status: store.Missing},
 		{Key: "pm.npm", Status: store.OK},
 		{Key: "net", Status: store.Unknown, Why: "not checked"},
 	}
 	s := Snapshot(st, "x deep")
-	for _, want := range []string{"CONFIRMED", "python (Python 3.99.0)", "NOT INSTALLED", "rust", "ffmpeg", "UNKNOWN", "net: not checked", "x deep net", "Do not assume"} {
+	for _, want := range []string{"CONFIRMED", "python (python3: Python 3.99.0)", "commands: python", "NOT INSTALLED", "rust", "ffmpeg", "UNKNOWN", "net: not checked", "x deep net", "Do not assume"} {
 		if !strings.Contains(s, want) {
 			t.Errorf("missing %q in:\n%s", want, s)
 		}

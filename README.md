@@ -49,6 +49,19 @@ RULES
 
 It stays under 2,500 characters. Details are fetched only when needed.
 
+## Benchmark
+
+Same tasks, same model, with and without `assume-nothing`. Each task is a small fictional project with a trap: the project suggests a tool that is not installed (a `pnpm` lock file but only `npm`; a Makefile but no `make`; a README that says `python` but only `python3`; a media question without `ffprobe`). 4 tasks × 3 runs per condition, Claude Code in headless mode, 2026-10-29.
+
+| Model | Probe | Success | Failed commands on a missing tool (per task) | Tool calls (per task) | Seconds (per task) |
+| --- | --- | --- | --- | --- | --- |
+| Claude Haiku | without | 12/12 | 1.3 | 4.2 | 14 |
+| Claude Haiku | **with** | 12/12 | **0.1** | **3.2** | **12** |
+| Claude Sonnet | without | 12/12 | 0.8 | 3.1 | 14 |
+| Claude Sonnet | **with** | 12/12 | **0.0** | **2.8** | **11** |
+
+Read it honestly: every run succeeded either way. What changes is how the agent gets there: with the probe it stops trying commands that are not there, so it makes fewer calls and finishes sooner, and the effect is larger on the smaller model. The sample is small and the tasks were built to contain traps, so do not expect the same numbers on everyday work. Per-task numbers, the raw results and the script are in [`evals/`](evals/); run `python3 evals/run.py --plugin-dir <plugin> --model haiku` to reproduce.
+
 ## Install
 
 **Claude Code**
@@ -121,7 +134,7 @@ Add tools your project depends on to `.assume-nothing.json` in the project folde
 ## Roadmap
 
 - [x] Codex CLI and Gemini CLI (experimental, v0.2)
-- [ ] A published A/B benchmark: same tasks, with and without the probe
+- [x] A published A/B benchmark (small; more tasks welcome)
 - [ ] Windows without Git Bash (PowerShell entry point)
 
 ## Build from source
