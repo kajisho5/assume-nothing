@@ -1,0 +1,14 @@
+{
+  "name": "assume-nothing",
+  "owner": { "name": "kajisho5", "url": "https://github.com/kajisho5" },
+  "description": "Make coding agents probe before they act.",
+  "plugins": [
+    {
+      "name": "assume-nothing",
+      "source": { "source": "github", "repo": "kajisho5/assume-nothing", "ref": "dist" },
+      "description": "Probes the environment before any tool runs, and blocks commands that are not installed.",
+      "category": "development",
+      "tags": ["hooks", "probe", "environment", "hallucination"]
+    }
+  ]
+}
