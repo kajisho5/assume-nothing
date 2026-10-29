@@ -162,6 +162,8 @@ Codex・Gemini・Cursor・OpenCode は、形式の検査（OpenCode は Node で
 
 調べたかの確認（差し戻し）を止めたいときは、環境変数 `ASSUME_NOTHING_TARGETS=0`。マシンの下調べはそのまま動きます。全部止めたいときは `ASSUME_NOTHING=off`。
 
+お知らせや差し戻しの文は、依頼が日本語なら日本語で出ます。言語を固定したいときは `ASSUME_NOTHING_LANG=ja`（または `en`）。
+
 ## 動く環境
 
 - Mac・Linux・Windows（amd64 / arm64）。Windows の Claude Code と Codex は Git Bash 経由で動きます（無い場合は止めずに素通り）。Cursor と OpenCode は Git Bash 不要です

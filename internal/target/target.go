@@ -108,7 +108,24 @@ func Key(s string) string {
 }
 
 // fresh matches a request about something that changes over time.
-var fresh = regexp.MustCompile(`(?i)(最新|料金|価格|値段|相場|いくら|价格|價格|多少钱|定价|최신|가격|요금|\búltim[ao]\b|\bprecio\b|dernière version|\bprix\b|neueste|\bpreis\b|\blatest\b|\bnewest\b|\bpricing\b|\bprice of\b|\bhow much (?:does|is)\b|\bcurrent version\b|\bup[- ]to[- ]date\b)`)
+var fresh = regexp.MustCompile(`(?i)(最新|料金|価格|値段|相場|いくら|現在の|今の(?:社長|CEO|代表|価格|値段|状況|バージョン|版|ルール|仕様)|今年|今月|今週|ニュース|動向|近況|\bcurrent (?:version|release|price|pricing|ceo|status|state|rules?)\b|\bcurrently\b|\bnews\b|\bthis (?:year|month|week)\b|\btoday\b|价格|價格|多少钱|定价|최신|가격|요금|\búltim[ao]\b|\bprecio\b|dernière version|\bprix\b|neueste|\bpreis\b|\blatest\b|\bnewest\b|\bpricing\b|\bprice of\b|\bhow much (?:does|is)\b|\bcurrent version\b|\bup[- ]to[- ]date\b)`)
+
+// Japanese reports whether text is written in Japanese (it has kana).
+func Japanese(text string) bool {
+	for _, r := range text {
+		if unicode.Is(unicode.Hiragana, r) || unicode.Is(unicode.Katakana, r) {
+			return true
+		}
+	}
+	return false
+}
+
+// followUp matches a request that refers back to something already named:
+// 「それの最新版は？」, "what about its license?".
+var followUp = regexp.MustCompile(`(?i)(それ|その|これ|この|あれ|あの|そいつ|そっち|こっち|同じ|さっきの|\bit\b|\bits\b|\bthat\b|\bthis\b|\bthem\b|\bthey\b|\bsame\b)`)
+
+// FollowUp reports whether a request refers back to earlier names.
+func FollowUp(prompt string) bool { return followUp.MatchString(prompt) }
 
 // Fresh reports whether a request asks about something that changes over
 // time (the latest version, a price), which memory cannot answer reliably.
@@ -322,6 +339,7 @@ type entry struct {
 	Key   string `json:"key"`
 	How   string `json:"how,omitempty"`
 	Fresh bool   `json:"fresh,omitempty"`
+	Lang  string `json:"lang,omitempty"`
 }
 
 // State is what the log says.
@@ -333,6 +351,9 @@ type State struct {
 	Prompts int      // how many requests so far
 	Fresh   bool     // the most recent request asks about something that changes
 	Looked  bool     // a lookup succeeded since the most recent request
+	Lang    string   // language of the most recent request: "ja" or ""
+	// SeenNow holds the targets looked at since the most recent request.
+	SeenNow map[string]bool
 }
 
 // FreshKey names the "needs a lookup" warning of the current request.
@@ -340,7 +361,7 @@ func (s *State) FreshKey() string { return "fresh#" + strconv.Itoa(s.Prompts) }
 
 // Read loads the log. A missing file is an empty state.
 func (l Log) Read() (*State, error) {
-	st := &State{Seen: map[string]string{}, Warned: map[string]bool{}}
+	st := &State{Seen: map[string]string{}, Warned: map[string]bool{}, SeenNow: map[string]bool{}}
 	f, err := os.Open(l.Path)
 	if os.IsNotExist(err) {
 		return st, nil
@@ -367,6 +388,7 @@ func (l Log) Read() (*State, error) {
 			if _, ok := st.Seen[e.Key]; !ok {
 				st.Seen[e.Key] = e.How
 			}
+			st.SeenNow[e.Key] = true
 		case "warned":
 			st.Warned[e.Key] = true
 		case "prompt":
@@ -377,6 +399,8 @@ func (l Log) Read() (*State, error) {
 			st.Prompts++
 			st.Fresh = e.Fresh
 			st.Looked = false
+			st.Lang = e.Lang
+			st.SeenNow = map[string]bool{}
 		case "lookup":
 			st.Looked = true
 		}
@@ -409,17 +433,17 @@ func (l Log) append(es []entry) error {
 }
 
 // AddTargets records a new request without a time-sensitive question.
-func (l Log) AddTargets(ts []Target) error { return l.AddPrompt(ts, false) }
+func (l Log) AddTargets(ts []Target) error { return l.AddPrompt(ts, false, "") }
 
 // AddPrompt records a new request: the targets it names (targets already
 // known are listed again so the log knows what the latest request named), and
 // whether it asks about something that changes over time.
-func (l Log) AddPrompt(ts []Target, fresh bool) error {
+func (l Log) AddPrompt(ts []Target, fresh bool, lang string) error {
 	keys := make([]string, 0, len(ts))
 	for _, t := range ts {
 		keys = append(keys, t.Key)
 	}
-	es := []entry{{Kind: "prompt", Key: "p", Text: strings.Join(keys, ","), Fresh: fresh}}
+	es := []entry{{Kind: "prompt", Key: "p", Text: strings.Join(keys, ","), Fresh: fresh, Lang: lang}}
 	for _, t := range ts {
 		es = append(es, entry{Kind: "target", Text: t.Text, Key: t.Key})
 	}

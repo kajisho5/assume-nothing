@@ -109,6 +109,40 @@ func TargetsOff() bool {
 	return false
 }
 
+// lang is the language for messages people read: "ja" or "" (English).
+// ASSUME_NOTHING_LANG=ja|en wins; otherwise the language of the latest
+// request; otherwise the system locale.
+func lang(session string) string {
+	switch strings.ToLower(os.Getenv("ASSUME_NOTHING_LANG")) {
+	case "ja":
+		return "ja"
+	case "en":
+		return ""
+	}
+	if lg, ok := targetLog(session); ok {
+		if ts, err := lg.Read(); err == nil && ts.Prompts > 0 {
+			return ts.Lang
+		}
+	}
+	for _, k := range []string{"LC_ALL", "LC_MESSAGES", "LANG"} {
+		if v := os.Getenv(k); v != "" {
+			if strings.HasPrefix(v, "ja") {
+				return "ja"
+			}
+			break
+		}
+	}
+	return ""
+}
+
+// tr picks the Japanese or English text.
+func tr(l, ja, en string) string {
+	if l == "ja" {
+		return ja
+	}
+	return en
+}
+
 // DeepCommand is how the agent can run deeper checks; set by main.
 var DeepCommand = "assume-nothing deep"
 
@@ -208,7 +242,9 @@ func PreToolUse(in Input) *Output {
 				return nil
 			}
 		}
-		return deny("assume-nothing: this session had no environment probe yet, so one was just run. Read it, then make the same call again.\n\n" + snap)
+		return deny(tr(lang(in.SessionID),
+			"assume-nothing: この会話はまだ下調べをしていなかったので、今実行しました。結果を読んでから、同じ操作をもう一度してください。\n\n",
+			"assume-nothing: this session had no environment probe yet, so one was just run. Read it, then make the same call again.\n\n") + snap)
 	}
 
 	var notes []string
@@ -227,8 +263,9 @@ func PreToolUse(in Input) *Output {
 	var out *Output
 	if cmd != "" {
 		if missing := gate.MissingCommands(cmd, st); len(missing) > 0 {
-			out = deny(missingReason(missing, st))
-			out.Notice = "assume-nothing: stopped a command that is not installed: " + strings.Join(missing, ", ") + "."
+			l := lang(in.SessionID)
+			out = deny(missingReason(missing, st, l))
+			out.Notice = tr(l, "assume-nothing: 入っていないコマンドを止めました: ", "assume-nothing: stopped a command that is not installed: ") + strings.Join(missing, ", ") + tr(l, "。", ".")
 		}
 	}
 	if err := save(st); err != nil {
@@ -252,12 +289,37 @@ func PreToolUse(in Input) *Output {
 	return nil
 }
 
-func missingReason(missing []string, st *store.State) string {
+// localBins are project folders whose programs are not on PATH but can be run
+// through a project tool (npx, the virtual environment).
+var localBins = []struct{ dir, ja, en string }{
+	{"node_modules/.bin", "npx %s で実行できます", "run it with npx %s"},
+	{".venv/bin", ".venv を有効にするか .venv/bin/%s で実行できます", "activate .venv or run .venv/bin/%s"},
+	{"venv/bin", "venv を有効にするか venv/bin/%s で実行できます", "activate venv or run venv/bin/%s"},
+	{"vendor/bin", "vendor/bin/%s で実行できます", "run vendor/bin/%s"},
+}
+
+func localHint(cwd, name, l string) string {
+	for _, lb := range localBins {
+		for _, ext := range []string{"", ".cmd", ".exe"} {
+			if fi, err := os.Stat(filepath.Join(cwd, lb.dir, name+ext)); err == nil && !fi.IsDir() {
+				return fmt.Sprintf(tr(l, "%s はこのプロジェクトの %s にあります。%s。\n", "%s is in this project's %s: %s.\n"), name, lb.dir, fmt.Sprintf(tr(l, lb.ja, lb.en), name))
+			}
+		}
+	}
+	return ""
+}
+
+func missingReason(missing []string, st *store.State, l string) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "assume-nothing: not installed (PATH lookup): %s.\n", strings.Join(missing, ", "))
-	b.WriteString("Do not assume it exists. Use an installed alternative, install it first, or check it with: ")
+	fmt.Fprintf(&b, tr(l, "assume-nothing: 入っていないコマンドです（PATHで確認）: %s。\n", "assume-nothing: not installed (PATH lookup): %s.\n"), strings.Join(missing, ", "))
+	for _, name := range missing {
+		b.WriteString(localHint(st.Cwd, name, l))
+	}
+	b.WriteString(tr(l, "あると決めつけないでください。入っている別の道具を使うか、先に入れるか、次で確かめてください: ",
+		"Do not assume it exists. Use an installed alternative, install it first, or check it with: "))
 	fmt.Fprintf(&b, "%s tool %s\n", DeepCommand, missing[0])
-	b.WriteString("If you are sure it exists (an alias, a shell function, or a PATH this check cannot see), run the same command again and it will go through.\n")
+	b.WriteString(tr(l, "別名・シェル関数・この確認から見えない PATH などで確かにあるなら、同じコマンドをもう一度実行すれば通ります。\n",
+		"If you are sure it exists (an alias, a shell function, or a PATH this check cannot see), run the same command again and it will go through.\n"))
 	var have []string
 	for _, f := range st.Facts {
 		if f.Status == store.OK && (strings.HasPrefix(f.Key, "lang.") || strings.HasPrefix(f.Key, "tool.") || strings.HasPrefix(f.Key, "pm.")) {
@@ -265,7 +327,7 @@ func missingReason(missing []string, st *store.State) string {
 		}
 	}
 	if len(have) > 0 {
-		fmt.Fprintf(&b, "Installed (from the session probe): %s\n", strings.Join(have, ", "))
+		fmt.Fprintf(&b, tr(l, "入っているもの（下調べより）: %s\n", "Installed (from the session probe): %s\n"), strings.Join(have, ", "))
 	}
 	return render.Cap(b.String(), render.Limit)
 }
@@ -328,10 +390,12 @@ func noteLookup(in Input) {
 	// A successful web or network lookup made after a request covers the names
 	// in that request, even when it spells them differently: a request about
 	// 「イーロンマスク」 is usually searched as "Elon Musk".
-	if isLookup(in) && !target.Failed(in.ToolResponse) && len(ts.Latest) > 0 {
+	// Only when the request named one thing: with several, a search for one
+	// of them must not count for the others.
+	if isLookup(in) && !target.Failed(in.ToolResponse) && len(ts.Latest) == 1 {
 		var keys []string
 		for _, k := range ts.Latest {
-			if _, seen := ts.Seen[k]; !seen {
+			if !ts.SeenNow[k] {
 				keys = append(keys, k)
 			}
 		}
@@ -401,17 +465,36 @@ func UserPromptSubmit(in Input) *Output {
 			// A request that names nothing is still recorded once targets exist,
 			// so the next answer is not checked against an older request.
 			isFresh := target.Fresh(in.Prompt)
-			if have, err := lg.Read(); err == nil && (len(ts) > 0 || len(have.Targets) > 0 || isFresh) {
+			l := ""
+			if target.Japanese(in.Prompt) {
+				l = "ja"
+			}
+			if have, err := lg.Read(); err == nil && (len(ts) > 0 || len(have.Targets) > 0 || isFresh || l != "") {
+				// 「それの最新版は？」: no new name, so it is about the last ones.
+				if len(ts) == 0 && len(have.Latest) > 0 && target.FollowUp(in.Prompt) {
+					for _, t := range have.Targets {
+						for _, k := range have.Latest {
+							if t.Key == k {
+								ts = append(ts, t)
+							}
+						}
+					}
+				}
 				var open []target.Target
 				for _, t := range ts {
 					if _, seen := have.Seen[t.Key]; !seen {
 						open = append(open, t)
 					}
 				}
-				if err := lg.AddPrompt(ts, isFresh); err != nil {
+				// A follow-up about something looked up earlier still needs a
+				// fresh look when it asks about something that changes.
+				if isFresh {
+					open = ts
+				}
+				if err := lg.AddPrompt(ts, isFresh, l); err != nil {
 					fmt.Fprintln(os.Stderr, "assume-nothing: could not save the target list:", err)
 				} else if len(open) > 0 || isFresh {
-					notes = append(notes, targetNote(open, isFresh))
+					notes = append(notes, targetNote(open, isFresh, l))
 				}
 			}
 		}
@@ -430,20 +513,26 @@ func names(ts []target.Target) string {
 	return strings.Join(n, ", ")
 }
 
-func targetNote(ts []target.Target, fresh bool) string {
+func targetNote(ts []target.Target, fresh bool, l string) string {
 	var b strings.Builder
 	b.WriteString("[assume-nothing: targets]\n")
 	if len(ts) > 0 {
-		b.WriteString("This request is about: " + names(ts) + ".\n" +
-			"Facts about them are UNKNOWN until you look them up in this session. What you remember may be outdated or wrong.\n" +
-			"Look in this project first (vendored copies, docs, CHANGELOG, lock files, config), then in the official source.\n")
+		b.WriteString(tr(l,
+			"この依頼の対象: "+names(ts)+"\n"+
+				"これらについての事実は、この会話の中で調べるまで「不明」です。記憶は古いか間違っているかもしれません。\n"+
+				"まずこのプロジェクトの中（同梱のコード、資料、CHANGELOG、ロックファイル、設定）、次に公式の情報源を見てください。\n",
+			"This request is about: "+names(ts)+".\n"+
+				"Facts about them are UNKNOWN until you look them up in this session. What you remember may be outdated or wrong.\n"+
+				"Look in this project first (vendored copies, docs, CHANGELOG, lock files, config), then in the official source.\n"))
 	}
 	if fresh {
-		b.WriteString("It asks about something that changes over time (a latest version, a price). " +
-			"Memory cannot answer that: look it up in this session, in the project's own files first.\n")
+		b.WriteString(tr(l,
+			"時期で変わること（最新版・価格・現在の状況など）を聞いています。記憶では答えられないので、この会話の中で調べてください（まずプロジェクトの中から）。\n",
+			"It asks about something that changes over time (a latest version, a price, the current state). Memory cannot answer that: look it up in this session, in the project's own files first.\n"))
 	}
-	b.WriteString("An answer that states such facts without a lookup will be sent back once. " +
-		"If you cannot look it up, say so next to the statement.")
+	b.WriteString(tr(l,
+		"調べずに事実を書いた答えは、一度差し戻されます。調べられないときは、その文の近くに「未確認」と書いてください。",
+		"An answer that states such facts without a lookup will be sent back once. If you cannot look it up, say so next to the statement."))
 	return b.String()
 }
 
@@ -525,13 +614,19 @@ func stopCheck(in Input, scope, event string) *Output {
 	// A question about something that changes needs some lookup this turn.
 	// Memory is the wrong source here, so a hedge does not excuse it the first time.
 	// Reading something about an asked target (a project file, a page) also counts.
-	seenAsked := false
+	// Only what was read since this request: an old look is stale for "latest".
+	seenAsked, mentionsAsked := false, false
 	for k := range asked {
-		if _, ok := ts.Seen[k]; ok {
+		if ts.SeenNow[k] {
 			seenAsked = true
 		}
 	}
-	freshMiss := ts.Fresh && !ts.Looked && !seenAsked && !ts.Warned[scope+ts.FreshKey()] && (substantial || len(hit) > 0)
+	for _, t := range ts.Targets {
+		if asked[t.Key] && target.Mentions(msg, t) {
+			mentionsAsked = true
+		}
+	}
+	freshMiss := ts.Fresh && !ts.Looked && !seenAsked && !ts.Warned[scope+ts.FreshKey()] && (substantial || len(hit) > 0 || mentionsAsked)
 	if freshMiss {
 		keys = append(keys, scope+ts.FreshKey())
 	}
@@ -542,23 +637,31 @@ func stopCheck(in Input, scope, event string) *Output {
 		fmt.Fprintln(os.Stderr, "assume-nothing: could not save the target list:", err)
 		return nil // a stop that cannot be remembered might repeat; let it go
 	}
-	what := "your answer talks about " + names(hit) + ", but nothing in this session looked it up (no tool read a page, file, or command output about it)"
+	l := lang(in.SessionID)
+	what := tr(l, "答えが "+names(hit)+" について述べていますが、この会話の中でそれを調べた記録がありません（ページ・ファイル・コマンドの出力のどれも読んでいません）",
+		"your answer talks about "+names(hit)+", but nothing in this session looked it up (no tool read a page, file, or command output about it)")
 	if len(hit) == 0 {
-		what = "the request asks about something that changes over time (a latest version, a price), but nothing looked it up since the request (no web fetch or search, MCP tool, or network command succeeded)"
+		what = tr(l, "依頼は時期で変わること（最新版・価格・現在の状況など）を聞いていますが、依頼のあとに調べた記録がありません（Web検索・取得、MCPの道具、ネットにつなぐコマンドのどれも成功していません）",
+			"the request asks about something that changes over time (a latest version, a price), but nothing looked it up since the request (no web fetch or search, MCP tool, or network command succeeded)")
 	} else if freshMiss {
-		what += "; the request also asks about something that changes over time, and nothing looked that up"
+		what += tr(l, "。また、依頼は時期で変わることを聞いていますが、それも調べていません", "; the request also asks about something that changes over time, and nothing looked that up")
 	}
-	notice := "assume-nothing: sent the answer back once, because nothing looked up " + names(hit) + "."
+	notice := tr(l, "assume-nothing: 調べた記録がないため、答えを一度差し戻しました（"+names(hit)+"）。",
+		"assume-nothing: sent the answer back once, because nothing looked up "+names(hit)+".")
 	if len(hit) == 0 {
-		notice = "assume-nothing: sent the answer back once, because a question about the latest version or price was answered without a lookup."
+		notice = tr(l, "assume-nothing: 最新版や価格などの質問に、調べずに答えたため、一度差し戻しました。",
+			"assume-nothing: sent the answer back once, because a question about the latest version or price was answered without a lookup.")
 	}
 	if event == "SubagentStop" {
-		notice = strings.Replace(notice, "the answer", "a subagent's answer", 1)
+		notice = strings.Replace(strings.Replace(notice, "the answer", "a subagent's answer", 1), "答えを", "サブエージェントの答えを", 1)
 	}
-	return &Output{Event: event, Notice: notice, Decision: "block", Reason: "assume-nothing: " + what + ".\n" +
-		"Before you finish, look it up: first in this project (vendored copies, docs, CHANGELOG, lock files, config), then in the official source. " +
-		"Correct the answer where it was wrong, or tell the user plainly which statements are not verified.\n" +
-		"If you did check it with something this hook cannot see (for example a hosted web search), say where you read it, then finish."}
+	return &Output{Event: event, Notice: notice, Decision: "block", Reason: "assume-nothing: " + what + tr(l, "。\n", ".\n") + tr(l,
+		"終える前に調べてください。まずこのプロジェクトの中（同梱のコード、資料、CHANGELOG、ロックファイル、設定）、次に公式の情報源です。"+
+			"間違っていたところは直し、調べられなかったことは、その文の近くに「未確認」と書いてください。\n"+
+			"この仕組みから見えない方法（クラウド側の検索など）で確かめた場合は、どこで読んだかを書いて終えてください。",
+		"Before you finish, look it up: first in this project (vendored copies, docs, CHANGELOG, lock files, config), then in the official source. "+
+			"Correct the answer where it was wrong, or tell the user plainly which statements are not verified.\n"+
+			"If you did check it with something this hook cannot see (for example a hosted web search), say where you read it, then finish.")}
 }
 
 // AfterAgentResponse keeps the agent's latest answer for a stop hook that

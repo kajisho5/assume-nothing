@@ -219,6 +219,7 @@ Add tools your project depends on to `.assume-nothing.json` in the project folde
 | `ASSUME_NOTHING_STRICT=1` | Keep blocking when the probe record cannot be saved |
 | `ASSUME_NOTHING_TARGETS=0` | Turn off the lookup check (the environment probe still runs) |
 | `ASSUME_NOTHING=off` | Turn every hook off for this session |
+| `ASSUME_NOTHING_LANG=ja` or `en` | Language of the messages people read (default: the language of the request, then the system locale) |
 | `ASSUME_NOTHING_DATA=<dir>` | Where probe records are kept (default: the plugin's data folder) |
 
 ## Requirements
