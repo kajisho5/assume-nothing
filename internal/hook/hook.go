@@ -244,6 +244,25 @@ var writeTools = map[string]bool{
 	"TaskCreate": true, "TaskUpdate": true, "AskUserQuestion": true, "SendUserMessage": true,
 	"SendUserFile": true, "apply_patch": true, "write_file": true, "replace": true,
 	"write_todos": true, "save_memory": true,
+	// Handing work to a subagent or loading instructions is not looking
+	// something up; the subagent's own tool calls are checked on their own.
+	"Agent": true, "Task": true, "SubagentHandback": true, "Skill": true, "ToolSearch": true,
+	"TaskList": true, "TaskGet": true, "TaskStop": true, "EnterPlanMode": true, "ExitPlanMode": true,
+}
+
+// webTools fetch or search the web.
+var webTools = map[string]bool{"WebFetch": true, "WebSearch": true, "web_fetch": true, "google_web_search": true}
+
+// netCommand matches a shell command that reaches the network to look something up.
+var netCommand = regexp.MustCompile(`(?:^|[\s;&|(])(?:curl|wget|gh|http|xh|git\s+(?:ls-remote|fetch|clone)|npm\s+(?:view|info|show|search)|pnpm\s+view|yarn\s+info|pip3?\s+(?:index|download)|uv\s+pip\s+index|cargo\s+(?:search|info)|go\s+list\s+-m|brew\s+info)\b`)
+
+// isLookup reports whether a tool call looks something up outside the
+// machine: the web, an MCP server, or a network command.
+func isLookup(in Input) bool {
+	if webTools[in.ToolName] || strings.HasPrefix(in.ToolName, "mcp__") || strings.HasPrefix(in.ToolName, "mcp_") {
+		return true
+	}
+	return netCommand.MatchString(bashCommand(in))
 }
 
 func targetLog(session string) (target.Log, bool) {
@@ -269,6 +288,11 @@ func noteLookup(in Input) {
 	}
 	if keys := ts.Touched(in.ToolInput, in.ToolResponse); len(keys) > 0 {
 		if err := lg.MarkSeen(keys, in.ToolName); err != nil {
+			fmt.Fprintln(os.Stderr, "assume-nothing: could not save the lookup record:", err)
+		}
+	}
+	if ts.Fresh && !ts.Looked && isLookup(in) && !target.Failed(in.ToolResponse) {
+		if err := lg.MarkLookup(in.ToolName); err != nil {
 			fmt.Fprintln(os.Stderr, "assume-nothing: could not save the lookup record:", err)
 		}
 	}
@@ -324,17 +348,18 @@ func UserPromptSubmit(in Input) *Output {
 		if lg, ok := targetLog(in.SessionID); ok {
 			// A request that names nothing is still recorded once targets exist,
 			// so the next answer is not checked against an older request.
-			if have, err := lg.Read(); err == nil && (len(ts) > 0 || len(have.Targets) > 0) {
+			isFresh := target.Fresh(in.Prompt)
+			if have, err := lg.Read(); err == nil && (len(ts) > 0 || len(have.Targets) > 0 || isFresh) {
 				var open []target.Target
 				for _, t := range ts {
 					if _, seen := have.Seen[t.Key]; !seen {
 						open = append(open, t)
 					}
 				}
-				if err := lg.AddTargets(ts); err != nil {
+				if err := lg.AddPrompt(ts, isFresh); err != nil {
 					fmt.Fprintln(os.Stderr, "assume-nothing: could not save the target list:", err)
-				} else if len(open) > 0 {
-					notes = append(notes, targetNote(open))
+				} else if len(open) > 0 || isFresh {
+					notes = append(notes, targetNote(open, isFresh))
 				}
 			}
 		}
@@ -353,12 +378,21 @@ func names(ts []target.Target) string {
 	return strings.Join(n, ", ")
 }
 
-func targetNote(ts []target.Target) string {
-	return "[assume-nothing: targets]\n" +
-		"This request is about: " + names(ts) + ".\n" +
-		"Facts about them are UNKNOWN until you look them up in this session, in a primary source " +
-		"(the official docs, the repository, the file itself). What you remember may be outdated or wrong. " +
-		"An answer that states facts about them without a lookup will be stopped once."
+func targetNote(ts []target.Target, fresh bool) string {
+	var b strings.Builder
+	b.WriteString("[assume-nothing: targets]\n")
+	if len(ts) > 0 {
+		b.WriteString("This request is about: " + names(ts) + ".\n" +
+			"Facts about them are UNKNOWN until you look them up in this session, in a primary source " +
+			"(the official docs, the repository, the file itself). What you remember may be outdated or wrong.\n")
+	}
+	if fresh {
+		b.WriteString("It asks about something that changes over time (a latest version, a price). " +
+			"Memory cannot answer that: look it up in this session.\n")
+	}
+	b.WriteString("An answer that states such facts without a lookup will be sent back once. " +
+		"If you cannot look it up, say so next to the statement.")
+	return b.String()
 }
 
 // SubstantialAnswer is the length (in characters) from which an answer counts
@@ -375,7 +409,7 @@ func Stop(in Input) *Output {
 	if msg == "" {
 		msg = in.PromptResp
 	}
-	if strings.TrimSpace(msg) == "" || target.Hedged(msg) {
+	if strings.TrimSpace(msg) == "" {
 		return nil
 	}
 	lg, ok := targetLog(in.SessionID)
@@ -388,29 +422,59 @@ func Stop(in Input) *Output {
 	}
 	// A real answer to the latest request is about what that request named,
 	// even when it does not repeat the name.
-	latest := map[string]bool{}
-	if len([]rune(strings.TrimSpace(msg))) >= SubstantialAnswer {
-		for _, k := range ts.Latest {
+	substantial := len([]rune(strings.TrimSpace(msg))) >= SubstantialAnswer
+	latest, asked := map[string]bool{}, map[string]bool{}
+	for _, k := range ts.Latest {
+		asked[k] = true
+		if substantial {
 			latest[k] = true
 		}
 	}
 	var hit []target.Target
 	var keys []string
 	for _, t := range ts.Unseen() {
-		if !ts.Warned[t.Key] && (latest[t.Key] || target.Mentions(msg, t)) {
-			hit = append(hit, t)
-			keys = append(keys, t.Key)
+		if ts.Warned[t.Key] {
+			continue
 		}
+		switch {
+		case target.Mentions(msg, t):
+			// Named in the answer: only a hedge next to the name covers it.
+			// For a question about something that changes, a hedge is not
+			// enough the first time: memory is the wrong source, so try a lookup.
+			if target.HedgedAbout(msg, t) && !(ts.Fresh && asked[t.Key]) {
+				continue
+			}
+		case latest[t.Key]:
+			// An answer to the request that never names it: any hedge covers it.
+			if target.Hedged(msg) && !ts.Fresh {
+				continue
+			}
+		default:
+			continue
+		}
+		hit = append(hit, t)
+		keys = append(keys, t.Key)
 	}
-	if len(hit) == 0 {
+	// A question about something that changes needs some lookup this turn.
+	// Memory is the wrong source here, so a hedge does not excuse it the first time.
+	freshMiss := ts.Fresh && !ts.Looked && !ts.Warned[ts.FreshKey()] && (substantial || len(hit) > 0)
+	if freshMiss {
+		keys = append(keys, ts.FreshKey())
+	}
+	if len(keys) == 0 {
 		return nil
 	}
 	if err := lg.MarkWarned(keys); err != nil {
 		fmt.Fprintln(os.Stderr, "assume-nothing: could not save the target list:", err)
 		return nil // a stop that cannot be remembered might repeat; let it go
 	}
-	return &Output{Decision: "block", Reason: "assume-nothing: your answer talks about " + names(hit) +
-		", but nothing in this session looked it up (no tool read a page, file, or command output about it).\n" +
+	what := "your answer talks about " + names(hit) + ", but nothing in this session looked it up (no tool read a page, file, or command output about it)"
+	if len(hit) == 0 {
+		what = "the request asks about something that changes over time (a latest version, a price), but nothing looked it up since the request (no web fetch or search, MCP tool, or network command succeeded)"
+	} else if freshMiss {
+		what += "; the request also asks about something that changes over time, and nothing looked that up"
+	}
+	return &Output{Decision: "block", Reason: "assume-nothing: " + what + ".\n" +
 		"Before you finish, either look it up in a primary source (official docs, the repository, the file itself) " +
 		"and correct the answer where it was wrong, or tell the user plainly which statements are not verified.\n" +
 		"If you did check it with something this hook cannot see (for example a hosted web search), say where you read it, then finish."}

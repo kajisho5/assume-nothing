@@ -289,7 +289,7 @@ func TestTargetLookedUpPasses(t *testing.T) {
 	stop := map[string]any{"session_id": "tl", "cwd": dir, "last_assistant_message": "orbit-labs/quasar-cli has a build command."}
 	// A fetch of its page does.
 	event(t, "post-tool-use", map[string]any{"session_id": "tl", "cwd": dir, "tool_name": "WebFetch",
-		"tool_input": map[string]any{"url": "https://github.com/orbit-labs/quasar-cli"}, "tool_response": "README"})
+		"tool_input": map[string]any{"url": "https://github.com/orbit-labs/quasar-cli"}, "tool_response": "quasar-cli: a fictional build tool. Run quasar build to compile."})
 	if out := event(t, "stop", stop); out != nil {
 		t.Fatalf("blocked after a lookup: %+v", out)
 	}
@@ -361,5 +361,79 @@ func TestDetectAgent(t *testing.T) {
 	t.Setenv("CLAUDE_PROJECT_DIR", "")
 	if a := DetectAgent([]byte(`{}`), Claude); a != Codex {
 		t.Errorf("without CLAUDE_PROJECT_DIR expected the codex shape, got %s", a)
+	}
+}
+
+func TestStrictLookups(t *testing.T) {
+	setup(t)
+	dir := project(t)
+	sess := func(id string) {
+		event(t, "session-start", map[string]any{"session_id": id, "cwd": dir})
+	}
+	post := func(id, tool string, input map[string]any, resp string) {
+		event(t, "post-tool-use", map[string]any{"session_id": id, "tool_name": tool, "tool_input": input, "tool_response": resp})
+	}
+	stop := func(id, msg string) *Output {
+		return event(t, "stop", map[string]any{"session_id": id, "last_assistant_message": msg})
+	}
+
+	// A fetch that failed is not a lookup.
+	sess("s1")
+	event(t, "user-prompt-submit", map[string]any{"session_id": "s1", "prompt": "lumen-kitについて調べて"})
+	post("s1", "WebFetch", map[string]any{"url": "https://example.com/lumen-kit"}, "Request failed with status code 403")
+	if out := stop("s1", "lumen-kit has 40 widgets."); out == nil {
+		t.Fatal("a failed fetch counted as a lookup")
+	}
+
+	// A subagent's report is not a lookup by the main agent.
+	sess("s2")
+	event(t, "user-prompt-submit", map[string]any{"session_id": "s2", "prompt": "lumen-kitについて調べて"})
+	post("s2", "Agent", map[string]any{"prompt": "research lumen-kit"}, "lumen-kit is a fictional widget toolkit with 40 widgets.")
+	if out := stop("s2", "lumen-kit has 40 widgets."); out == nil {
+		t.Fatal("an Agent call counted as a lookup")
+	}
+
+	// A hedge far from the name does not cover it.
+	sess("s3")
+	event(t, "user-prompt-submit", map[string]any{"session_id": "s3", "prompt": "lumen-kitについて"})
+	if out := stop("s3", "lumen-kit 3.2 has themes. It ships 40 widgets. It runs on Node 22. It is MIT licensed. The cache layer is unverified."); out == nil {
+		t.Fatal("a distant hedge let the answer through")
+	}
+
+	// A question about the latest version needs a lookup, even with no name.
+	sess("s4")
+	event(t, "user-prompt-submit", map[string]any{"session_id": "s4", "prompt": "このライブラリの最新版を教えて"})
+	long := "The latest version is 9.1, released last month with a new renderer, faster builds, a smaller bundle size overall, and better error messages for broken configuration files."
+	out := stop("s4", long)
+	if out == nil || !strings.Contains(out.Reason, "changes over time") {
+		t.Fatalf("fresh question answered from memory not sent back: %+v", out)
+	}
+	if out := stop("s4", long); out != nil {
+		t.Fatal("fresh question sent back twice")
+	}
+	sess("s5")
+	event(t, "user-prompt-submit", map[string]any{"session_id": "s5", "prompt": "このライブラリの最新版を教えて"})
+	post("s5", "Bash", map[string]any{"command": "npm view nebula-widgets version"}, `{"stdout":"9.1.0 (a fictional package published for this test suite)","stderr":""}`)
+	if out := stop("s5", long); out != nil {
+		t.Fatalf("fresh question with a lookup sent back: %+v", out)
+	}
+}
+
+func TestFreshHedgeStillSentBackOnce(t *testing.T) {
+	setup(t)
+	dir := project(t)
+	event(t, "session-start", map[string]any{"session_id": "fh", "cwd": dir})
+	event(t, "user-prompt-submit", map[string]any{"session_id": "fh", "prompt": "Zephyrdocの最新の安定版は？"})
+	msg := "Zephyrdoc の最新安定版は 2.3 です（記憶に基づく回答で、検証はしていません）。"
+	if out := event(t, "stop", map[string]any{"session_id": "fh", "last_assistant_message": msg}); out == nil {
+		t.Fatal("a hedged memory answer to a latest-version question was not sent back")
+	}
+	if out := event(t, "stop", map[string]any{"session_id": "fh", "last_assistant_message": msg}); out != nil {
+		t.Fatal("sent back twice")
+	}
+	// Outside a time-sensitive question, the same hedge lets it through.
+	event(t, "user-prompt-submit", map[string]any{"session_id": "fh", "prompt": "Quillmarkについて教えて"})
+	if out := event(t, "stop", map[string]any{"session_id": "fh", "last_assistant_message": "Quillmark はエディタです（記憶に基づく回答で、検証はしていません）。"}); out != nil {
+		t.Fatalf("hedged answer sent back: %+v", out)
 	}
 }

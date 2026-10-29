@@ -63,7 +63,7 @@ out=$(echo "$stop" | run stop) || fail "stop hook exited non-zero"
 
 # 9. ...and passes once a tool looked it up
 printf '{"session_id":"smoke-u","cwd":"%s","prompt":"what is orbit-cli"}' "$cwd_json" | run user-prompt-submit >/dev/null
-echo '{"session_id":"smoke-u","tool_name":"WebFetch","tool_input":{"url":"https://example.com/orbit-cli"},"tool_response":"docs"}' | run post-tool-use >/dev/null
+echo '{"session_id":"smoke-u","tool_name":"WebFetch","tool_input":{"url":"https://example.com/orbit-cli"},"tool_response":"orbit-cli is a fictional build tool. It builds things from a config file."}' | run post-tool-use >/dev/null
 out=$(echo '{"session_id":"smoke-u","last_assistant_message":"orbit-cli builds things."}' | run stop) || fail "stop hook exited non-zero"
 [ -z "$out" ] || fail "looked-up answer sent back: $out"
 

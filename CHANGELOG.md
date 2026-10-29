@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.5.0] - 2026-10-29
+
+Stricter lookup check (see [docs/ROADMAP.md](docs/ROADMAP.md)).
+
+- A failed lookup is not a lookup: an error, a 4xx/5xx, a rate limit, or an empty answer does not count.
+- "Not verified" must be said next to the name; a hedge elsewhere in the answer does not cover it.
+- Questions about things that change ("latest", "price", 「最新」「料金」…) need a lookup in the turn (a web fetch or search, an MCP tool, or a network command such as `gh`, `curl`, `npm view`), even when no name was picked out. Answering those from memory is sent back once even if hedged. In a live run, Haiku answered "Bun 1.3.4" from memory, was sent back, looked it up, and corrected itself to 1.4.4.
+- Katakana names before 「について」「とは」「を調べて」 are picked up; generic words such as 「ライブラリ」「ツール」 are not.
+- Handing work to a subagent, loading a skill, or searching for tools never counts as a lookup.
+
 ## [0.4.0] - 2026-10-29
 
 - Assume nothing about the target, too. When a request names something (`owner/repo`, a URL, a `hyphenated-name`, a backticked or quoted name, or a word next to "について / とは / research / what is"), the agent is told it is UNKNOWN until looked up. If the answer then talks about it and no tool in the session looked at it, the answer is sent back once: look it up, or say plainly what is not verified. Answers that already say so pass.

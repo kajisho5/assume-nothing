@@ -66,9 +66,11 @@ Facts about them are UNKNOWN until you look them up in this session, in a primar
 An answer that states facts about them without a lookup will be stopped once.
 ```
 
-Every finished tool call is checked for those names (a page fetched, a search, a file read, a command whose input or output mentions them). When the agent is about to finish, an answer about a named thing that nothing looked at is sent back once. An answer that already says it is not verified goes through.
+Every finished tool call is checked for those names (a page fetched, a search, a file read, a command whose input or output mentions them). A call that failed (an error, a 403, a rate limit, an empty answer) does not count, and neither does handing the work to a subagent. When the agent is about to finish, an answer about a named thing that nothing looked at is sent back once. An answer that says, next to the name, that it is not verified goes through.
 
-What it picks up as a name: `owner/repo`, URLs, `hyphenated-names` and `dotted.names`, `backticked` and “quoted” names, and a word right before 「について」「とは」「を調べて」 or after "research", "look up", "what is". A plain word in a sentence is not taken, so "make it faster" names nothing.
+Questions about things that change ("the latest version", "the price", 「最新」「料金」) need a lookup even when no name was picked out, and a hedge does not excuse them the first time: memory is the wrong source for those. In a live run, Claude Haiku answered "Bun's latest is 1.3.4" from memory, was sent back, looked it up, and corrected itself to 1.4.4.
+
+What it picks up as a name: `owner/repo`, URLs, `hyphenated-names` and `dotted.names`, `backticked` and “quoted” names, and a word (also in katakana) right before 「について」「とは」「を調べて」 or after "research", "look up", "what is". A plain word in a sentence is not taken, so "make it faster" names nothing.
 
 Read it honestly: it checks that something was **looked at**, not that the answer is **right**. It is a nudge with teeth, not a fact checker. In live runs the note alone was usually enough: the agent searched first, or said up front that it was answering from memory.
 

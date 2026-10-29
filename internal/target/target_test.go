@@ -84,7 +84,10 @@ func TestLogFlow(t *testing.T) {
 	if len(st.Targets) != 2 || len(st.Unseen()) != 2 {
 		t.Fatalf("targets = %v", st.Targets)
 	}
-	keys := st.Touched([]byte(`{"query":"lumen kit github"}`), []byte(`"no results"`))
+	if k := st.Touched([]byte(`{"query":"lumen kit github"}`), []byte(`"no results"`)); len(k) != 0 {
+		t.Fatalf("a failed search counted: %v", k)
+	}
+	keys := st.Touched([]byte(`{"query":"lumen kit github"}`), []byte(`"1. Lumen Kit: a fictional widget toolkit for demos. Version 3.2 adds themes."`))
 	if len(keys) != 1 || keys[0] != "lumenkit" {
 		t.Fatalf("touched = %v", keys)
 	}
@@ -101,7 +104,7 @@ func TestLogFlow(t *testing.T) {
 
 func TestTouchedSeesEscapedJSON(t *testing.T) {
 	st := &State{Targets: []Target{{Text: "lumen-kit", Key: "lumenkit"}}, Seen: map[string]string{}}
-	if k := st.Touched([]byte(`{"url":"https:\/\/example.com\/lumen-kit"}`)); len(k) != 1 {
+	if k := st.Touched([]byte(`{"url":"https:\/\/example.com\/lumen\u002dkit"}`), []byte(`"A fictional page with enough text to count as an answer."`)); len(k) != 1 {
 		t.Fatalf("escaped JSON not matched: %v", k)
 	}
 }
@@ -127,5 +130,69 @@ func TestLatestPrompt(t *testing.T) {
 	st, _ = lg.Read()
 	if len(st.Latest) != 1 || st.Latest[0] != "lumenkit" {
 		t.Fatalf("latest = %v", st.Latest)
+	}
+}
+
+func TestFailedOutputs(t *testing.T) {
+	for _, s := range []string{
+		``, `"ok"`,
+		`{"stdout":"curl: (22) The requested URL returned error: 403","stderr":""}`,
+		`Request failed with status code 404 for https://example.com/lumen-kit`,
+		`{"message":"API rate limit exceeded for 203.0.113.9","documentation_url":"https://docs.example.com"}`,
+		`HTTP 429: too many requests, try again later please`,
+	} {
+		if !Failed([]byte(s)) {
+			t.Errorf("not seen as failed: %q", s)
+		}
+	}
+	for _, s := range []string{
+		`"Lumen Kit 3.2 released. It has 500 stars and supports themes and plugins."`,
+		`{"stdout":"lumen-kit 3.2.0  A fictional widget toolkit for demonstration purposes","stderr":""}`,
+		strings.Repeat("A long page that mentions error 404 once in a table of status codes. ", 80),
+	} {
+		if Failed([]byte(s)) {
+			t.Errorf("seen as failed: %q", s[:40])
+		}
+	}
+}
+
+func TestHedgedAbout(t *testing.T) {
+	tg := Target{Text: "lumen-kit", Key: "lumenkit"}
+	if !HedgedAbout("lumen-kit は未確認ですが、テーマ機能があるはずです。", tg) {
+		t.Error("hedge in the same sentence not seen")
+	}
+	if !HedgedAbout("lumen-kit has themes. I have not verified this.", tg) {
+		t.Error("hedge in the next sentence not seen")
+	}
+	long := "lumen-kit 3.2 has themes. It ships 40 widgets. It runs on Node 22. It is MIT licensed. The cache layer is unverified."
+	if HedgedAbout(long, tg) {
+		t.Error("a hedge far from the name covered it")
+	}
+}
+
+func TestFreshAndKatakana(t *testing.T) {
+	for _, p := range []string{"Lumenの最新版は？", "what's the latest release", "料金を教えて", "how much does it cost"} {
+		if !Fresh(p) {
+			t.Errorf("not fresh: %q", p)
+		}
+	}
+	for _, p := range []string{"fix the build", "リリースして", "make it faster"} {
+		if Fresh(p) {
+			t.Errorf("fresh: %q", p)
+		}
+	}
+	got := texts(Extract("ルミナスエディタについて調べて"))
+	if strings.Join(got, "|") != "ルミナスエディタ" {
+		t.Errorf("katakana name: %q", got)
+	}
+	tg := Extract("「ルミナスエディタ」の料金")[0]
+	if !Mentions("ルミナスエディタは月額制です", tg) {
+		t.Error("katakana mention not found")
+	}
+}
+
+func TestGenericKatakanaIsNotAName(t *testing.T) {
+	if got := Extract("このライブラリの最新版とツールについて"); len(got) != 0 {
+		t.Errorf("generic nouns taken as names: %v", texts(got))
 	}
 }
