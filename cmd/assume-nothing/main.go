@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/kajisho5/assume-nothing/internal/hook"
+	"github.com/kajisho5/assume-nothing/internal/install"
 	"github.com/kajisho5/assume-nothing/internal/probe"
 	"github.com/kajisho5/assume-nothing/internal/render"
 	"github.com/kajisho5/assume-nothing/internal/store"
@@ -30,6 +31,8 @@ Usage:
   assume-nothing probe [--json] [--cwd DIR]                         print the session probe
   assume-nothing deep net [--json]                                  check outbound network access
   assume-nothing deep tool <name> [--json]                          check one tool in depth
+  assume-nothing install-repo --checksums FILE [DIR]                  set up hooks in a repository (works in cloud sessions)
+  assume-nothing install-repo --remove [DIR]                         take them out again
   assume-nothing version
 `
 
@@ -46,6 +49,8 @@ func main() {
 		os.Exit(runProbe(os.Args[2:]))
 	case "deep":
 		os.Exit(runDeep(os.Args[2:]))
+	case "install-repo":
+		os.Exit(runInstallRepo(os.Args[2:]))
 	case "version", "--version", "-v":
 		fmt.Println("assume-nothing", version)
 	case "help", "--help", "-h":
@@ -56,8 +61,46 @@ func main() {
 	}
 }
 
+func runInstallRepo(args []string) int {
+	fs := flag.NewFlagSet("install-repo", flag.ContinueOnError)
+	sums := fs.String("checksums", "", "the release's checksums.txt")
+	remove := fs.Bool("remove", false, "remove the hooks and the launcher")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	dir := "."
+	if fs.NArg() > 0 {
+		dir = fs.Arg(0)
+	}
+	if *remove {
+		if err := install.Remove(dir); err != nil {
+			fmt.Fprintln(os.Stderr, "assume-nothing:", err)
+			return 1
+		}
+		fmt.Println("assume-nothing: removed from", dir)
+		return 0
+	}
+	if *sums == "" {
+		fmt.Fprintln(os.Stderr, "assume-nothing: --checksums is required (the release's checksums.txt)")
+		return 2
+	}
+	m, err := install.ReadChecksums(*sums)
+	if err == nil {
+		err = install.Repo(dir, version, m)
+	}
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "assume-nothing:", err)
+		return 1
+	}
+	fmt.Printf("assume-nothing v%s set up in %s\n  %s\n  .claude/settings.json (3 hooks)\nCommit both, and every Claude Code session on this repository probes first, cloud sessions included.\n", version, dir, install.Launcher)
+	return 0
+}
+
 // deepCommand returns the command line an agent should use for deeper checks.
 func deepCommand() string {
+	if l := os.Getenv("ASSUME_NOTHING_LAUNCHER"); l != "" {
+		return `"` + filepath.ToSlash(l) + `" deep`
+	}
 	root := os.Getenv("CLAUDE_PLUGIN_ROOT")
 	if root == "" {
 		if exe, err := os.Executable(); err == nil {

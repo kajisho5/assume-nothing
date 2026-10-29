@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.3.0] - 2026-10-29
+
+- Works in Claude Code cloud sessions (browser, Claude phone app) and for whole teams: `scripts/setup-repo.sh` sets it up inside a repository. Cloud sessions do not install plugins, but they run a repository's hooks.
+- New `install-repo` command: writes `.claude/assume-nothing/run.sh`, a launcher pinned to one release that downloads the right binary on first use and checks its SHA-256, and adds three hooks to `.claude/settings.json` without touching other settings. `install-repo --remove` takes it out again.
+
 ## [0.2.2] - 2026-10-29
 
 - Demo animation in the README (`docs/demo/`, rendered from recorded benchmark runs by `make_demo.py`).
