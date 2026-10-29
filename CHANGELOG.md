@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.11.1] - 2026-10-30
+
+- A successful web or network lookup after a request covers the names in that request, even when it spells them differently. In a live run, a question about 「イーロンマスク」 was searched as "Elon Musk", and the answer was sent back as if nothing had been looked up.
+- English: "who is X", and capitalized names of up to four words ("Elon Musk", "Visual Studio Code") are picked up whole, not as their first word. A lowercase word is taken only after a research verb.
+
 ## [0.11.0] - 2026-10-30
 
 - Project first. The notes and the send-back now say to look in the project's own files (vendored copies, docs, CHANGELOG, lock files, config) before the official source. In a 10-run benchmark, v0.10 pushed Claude Haiku toward public registries on a "latest version" question; they returned 404 and it gave up (1/10 right, 7/10 without the plugin).

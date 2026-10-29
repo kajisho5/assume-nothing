@@ -576,3 +576,25 @@ func TestFreshTriedLookupAndProjectFile(t *testing.T) {
 		t.Fatalf("answer from a project file sent back: %+v", out.Reason)
 	}
 }
+
+func TestLookupCoversOtherSpelling(t *testing.T) {
+	setup(t)
+	dir := project(t)
+	event(t, "session-start", map[string]any{"session_id": "sp", "cwd": dir})
+	event(t, "user-prompt-submit", map[string]any{"session_id": "sp", "prompt": "ルミナスバルガの最新の動向は？"})
+	// Searched in another script: the fictional person's English name.
+	event(t, "post-tool-use", map[string]any{"session_id": "sp", "tool_name": "WebSearch",
+		"tool_input": map[string]any{"query": "Luminas Varga latest news"}, "tool_response": "1. Luminas Varga announced a fictional product line for the test suite on Monday."})
+	msg := "ルミナスバルガは月曜日に新製品群を発表しました（検索結果による）。今後の展開にも注目が集まっています。発表内容の詳細は公式発表を参照してください。"
+	if out := event(t, "stop", map[string]any{"session_id": "sp", "last_assistant_message": msg}); out != nil {
+		t.Fatalf("answer after a search in another spelling sent back: %s", out.Reason)
+	}
+	// A failed search does not cover it.
+	event(t, "session-start", map[string]any{"session_id": "sq", "cwd": dir})
+	event(t, "user-prompt-submit", map[string]any{"session_id": "sq", "prompt": "ルミナスバルガについて調べて"})
+	event(t, "post-tool-use", map[string]any{"session_id": "sq", "tool_name": "WebSearch",
+		"tool_input": map[string]any{"query": "Luminas Varga"}, "tool_response": "no results"})
+	if out := event(t, "stop", map[string]any{"session_id": "sq", "last_assistant_message": "ルミナスバルガは有名な起業家です。"}); out == nil {
+		t.Fatal("a failed search covered the name")
+	}
+}

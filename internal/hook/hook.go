@@ -325,6 +325,22 @@ func noteLookup(in Input) {
 			fmt.Fprintln(os.Stderr, "assume-nothing: could not save the lookup record:", err)
 		}
 	}
+	// A successful web or network lookup made after a request covers the names
+	// in that request, even when it spells them differently: a request about
+	// 「イーロンマスク」 is usually searched as "Elon Musk".
+	if isLookup(in) && !target.Failed(in.ToolResponse) && len(ts.Latest) > 0 {
+		var keys []string
+		for _, k := range ts.Latest {
+			if _, seen := ts.Seen[k]; !seen {
+				keys = append(keys, k)
+			}
+		}
+		if len(keys) > 0 {
+			if err := lg.MarkSeen(keys, in.ToolName+" (after the request)"); err != nil {
+				fmt.Fprintln(os.Stderr, "assume-nothing: could not save the lookup record:", err)
+			}
+		}
+	}
 	// For a question about something that changes, trying counts: a lookup
 	// that came back "not found" is still not an answer from memory.
 	if ts.Fresh && !ts.Looked && isLookup(in) {

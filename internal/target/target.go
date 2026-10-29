@@ -42,8 +42,11 @@ var (
 	// "ffmpegについて調べて", "Tauriとは", "Astroって何".
 	jaAbout = regexp.MustCompile(`([A-Za-z][A-Za-z0-9+#]{2,40}|[ァ-ヶー・]{3,30})\s*(?:について|とは|って何|ってなに|を調べ|をしらべ|を比較|の(?:最新|仕様|料金|価格|バージョン|使い方|機能))`)
 	// English: "research Tauri", "look up Astro", "what is Bun".
-	enAbout = regexp.MustCompile(`(?i)\b(?:research|look\s+up|look\s+into|investigate|what\s+is|what's|tell\s+me\s+about)\s+([A-Za-z][A-Za-z0-9+#._-]{2,40})`)
-	version = regexp.MustCompile(`^v?\d+(\.\d+)*$`)
+	// A capitalized name may have up to four words ("Elon Musk", "Visual Studio Code").
+	enAbout = regexp.MustCompile(`(?:^|\b)(?i:research|look\s+up|look\s+into|investigate|what\s+is|what's|who\s+is|who's|tell\s+me\s+about|about)\s+(?:the\s+)?([A-Z][A-Za-z0-9+#._-]*(?:\s+[A-Z][A-Za-z0-9+#._-]*){0,3})`)
+	// A lowercase name only right after a research verb ("research zorvexmark").
+	enResearch = regexp.MustCompile(`(?i:\b(?:research|look\s+up|look\s+into|investigate))\s+([a-z][a-z0-9+#._-]{2,40})`)
+	version    = regexp.MustCompile(`^v?\d+(\.\d+)*$`)
 	// A name of any script right before a request to look it up:
 	// 「秀丸エディタについて調べて」「星雲帳を調べて」.
 	jaResearch = regexp.MustCompile(`([\p{Han}\p{Katakana}ーA-Za-z0-9・]{2,30})(?:について|の(?:こと|情報|仕様|最新情報))?\s*(?:を)?\s*(?:調べ|しらべ|調査|リサーチ|検索)`)
@@ -216,8 +219,11 @@ func Extract(prompt string) []Target {
 	for _, m := range koAbout.FindAllStringSubmatch(text, -1) {
 		add(m[1], Key(m[1]))
 	}
-	for _, m := range enAbout.FindAllStringSubmatch(text, -1) {
-		add(strings.TrimRight(m[1], ".,;:!?"), Key(m[1]))
+	for _, re := range []*regexp.Regexp{enAbout, enResearch} {
+		for _, m := range re.FindAllStringSubmatch(text, -1) {
+			n := strings.TrimRight(m[1], ".,;:!?")
+			add(n, Key(n))
+		}
 	}
 	return out
 }
