@@ -28,6 +28,16 @@ var skipSegment = map[string]bool{"for": true, "case": true, "select": true, "fu
 // wrappers run the next word as the command.
 var wrappers = map[string]bool{"sudo": true, "env": true, "nice": true, "nohup": true, "exec": true, "command": true, "builtin": true, "xargs": true, "doas": true, "stdbuf": true, "timeout": true, "caffeinate": true}
 
+// optTakesValue lists wrapper options whose value is the next word.
+var optTakesValue = map[string]bool{
+	"sudo -u": true, "sudo -g": true, "sudo -C": true, "sudo -h": true, "sudo -p": true, "sudo -D": true, "sudo -R": true, "sudo -U": true,
+	"doas -u": true, "doas -C": true,
+	"timeout -s": true, "timeout -k": true, "timeout --signal": true, "timeout --kill-after": true,
+	"nice -n": true, "env -u": true, "env -C": true, "env -S": true,
+	"xargs -I": true, "xargs -n": true, "xargs -P": true, "xargs -L": true, "xargs -s": true, "xargs -d": true, "xargs -E": true, "xargs -a": true,
+	"stdbuf -i": true, "stdbuf -o": true, "stdbuf -e": true,
+}
+
 var assign = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*(\[[^]]*\])?\+?=`)
 var bareName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._+-]*$`)
 
@@ -205,8 +215,21 @@ func firstCommand(words []string) string {
 			return ""
 		case wrappers[w]:
 			// skip the wrapper's options and assignments, then take the next word
-			for i+1 < len(words) && (strings.HasPrefix(words[i+1], "-") || assign.MatchString(words[i+1]) || isNumber(words[i+1]) && w == "timeout") {
-				i++
+			for i+1 < len(words) {
+				next := words[i+1]
+				switch {
+				case strings.HasPrefix(next, "-"):
+					i++
+					// options that take a separate value: sudo -u root, timeout -s KILL, nice -n 10, xargs -I {}
+					if optTakesValue[w+" "+next] && i+1 < len(words) {
+						i++
+					}
+					continue
+				case assign.MatchString(next), w == "timeout" && isNumber(next):
+					i++
+					continue
+				}
+				break
 			}
 			continue
 		}

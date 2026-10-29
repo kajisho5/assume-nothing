@@ -35,6 +35,10 @@ func TestCommandNames(t *testing.T) {
 		{"npm test; npm test", []string{"npm"}},
 		{"x=$(jq -r .name package.json); echo $x", []string{"jq"}},
 		{"cat file \\\n  | wc -l", []string{"cat", "wc"}},
+		{"sudo -u builder make install", []string{"make"}},
+		{"timeout -s KILL 10 node server.js", []string{"node"}},
+		{"find . -name '*.go' | xargs -I {} gofmt -l {}", []string{"find", "gofmt"}},
+		{"nice -n 10 ffmpeg -i a.mov b.mp4", []string{"ffmpeg"}},
 	}
 	for _, c := range cases {
 		got := CommandNames(c.line)
