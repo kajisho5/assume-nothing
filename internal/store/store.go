@@ -106,6 +106,15 @@ func path(session string) (string, error) {
 	return filepath.Join(d, safeName(session)+".json"), nil
 }
 
+// TargetLogPath is where the session's list of looked-up targets is kept.
+func TargetLogPath(session string) (string, error) {
+	d, err := Dir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(d, safeName(session)+".targets.log"), nil
+}
+
 // ErrNotFound means no record exists yet for the session.
 var ErrNotFound = errors.New("no probe record for this session")
 
@@ -176,7 +185,7 @@ func Prune(maxAge time.Duration) {
 	}
 	cutoff := time.Now().Add(-maxAge)
 	for _, e := range entries {
-		if e.IsDir() || !(strings.HasSuffix(e.Name(), ".json") || strings.HasPrefix(e.Name(), ".tmp-")) {
+		if e.IsDir() || !(strings.HasSuffix(e.Name(), ".json") || strings.HasSuffix(e.Name(), ".log") || strings.HasPrefix(e.Name(), ".tmp-")) {
 			continue
 		}
 		if info, err := e.Info(); err == nil && info.ModTime().Before(cutoff) {

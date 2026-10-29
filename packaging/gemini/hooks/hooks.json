@@ -7,6 +7,13 @@
         ]
       }
     ],
+    "BeforeAgent": [
+      {
+        "hooks": [
+          { "type": "command", "name": "assume-nothing-targets", "command": "sh \"${extensionPath}${/}scripts${/}run.sh\" hook --agent gemini BeforeAgent", "timeout": 15000 }
+        ]
+      }
+    ],
     "BeforeTool": [
       {
         "matcher": ".*",
@@ -17,9 +24,16 @@
     ],
     "AfterTool": [
       {
-        "matcher": "run_shell_command",
+        "matcher": ".*",
         "hooks": [
           { "type": "command", "name": "assume-nothing-recheck", "command": "sh \"${extensionPath}${/}scripts${/}run.sh\" hook --agent gemini AfterTool", "timeout": 15000 }
+        ]
+      }
+    ],
+    "AfterAgent": [
+      {
+        "hooks": [
+          { "type": "command", "name": "assume-nothing-lookup-check", "command": "sh \"${extensionPath}${/}scripts${/}run.sh\" hook --agent gemini AfterAgent", "timeout": 15000 }
         ]
       }
     ]

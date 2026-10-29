@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.0] - 2026-10-29
+
+- Assume nothing about the target, too. When a request names something (`owner/repo`, a URL, a `hyphenated-name`, a backticked or quoted name, or a word next to "について / とは / research / what is"), the agent is told it is UNKNOWN until looked up. If the answer then talks about it and no tool in the session looked at it, the answer is sent back once: look it up, or say plainly what is not verified. Answers that already say so pass.
+- New hooks: UserPromptSubmit (names the targets; also runs the probe there if the session start was missed, so the first tool call is no longer stopped for it) and Stop (the send-back). PostToolUse now runs for every tool, to note what each one looked at. Gemini CLI uses BeforeAgent / AfterAgent / AfterTool.
+- `ASSUME_NOTHING_TARGETS=0` turns the new check off.
+- `install-repo` writes the two new hooks too; run the setup command again to update a repository.
+
 ## [0.3.1] - 2026-10-29
 
 - Works when added to a Claude account (Customize > Plugins), so it also runs in the Claude app's agentic sessions. Hooks now call the launcher through `sh`, and the launcher restores the binary's executable bit, because an uploaded zip can lose file permissions.

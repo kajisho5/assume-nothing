@@ -1,10 +1,17 @@
 {
-  "description": "assume-nothing: probe the environment first, block tools until it is done, block commands that are not installed.",
+  "description": "assume-nothing: probe the environment first, block tools until it is done, block commands that are not installed, and send back answers about things nothing looked up.",
   "hooks": {
     "SessionStart": [
       {
         "hooks": [
           { "type": "command", "command": "sh \"${CLAUDE_PLUGIN_ROOT}/scripts/run.sh\" hook session-start", "timeout": 15 }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          { "type": "command", "command": "sh \"${CLAUDE_PLUGIN_ROOT}/scripts/run.sh\" hook user-prompt-submit", "timeout": 15 }
         ]
       }
     ],
@@ -17,9 +24,15 @@
     ],
     "PostToolUse": [
       {
-        "matcher": "Bash",
         "hooks": [
           { "type": "command", "command": "sh \"${CLAUDE_PLUGIN_ROOT}/scripts/run.sh\" hook post-tool-use", "timeout": 15 }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          { "type": "command", "command": "sh \"${CLAUDE_PLUGIN_ROOT}/scripts/run.sh\" hook stop", "timeout": 15 }
         ]
       }
     ]

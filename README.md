@@ -7,6 +7,7 @@ A plugin for Claude Code (and Codex CLI and Gemini CLI) that makes the agent loo
 1. **Probe first.** When a session starts, it checks the machine and the working folder and hands the agent a short list of facts: what is confirmed, what is not installed, and what is unknown.
 2. **No probe, no tools.** Until that probe exists, every tool call is stopped. The stop message carries the probe, so the agent reads it and goes on.
 3. **No phantom commands.** A shell command that is not installed is stopped before it runs, with the list of what *is* installed.
+4. **No answers from memory about the thing you asked about.** Ask about `some-library` or `owner/repo`, and the agent is told it knows nothing about it yet. If it answers anyway without any tool having looked it up, the answer is sent back once: look it up, or say plainly what is not verified.
 
 ![Without vs with assume-nothing: the agent without it runs `python` and fails; with it, the probe says only `python3` exists and the first try works](docs/demo/demo.gif)
 
@@ -51,6 +52,26 @@ RULES
 
 It stays under 2,500 characters. Details are fetched only when needed.
 
+## Assume nothing about the target, either
+
+The probe covers the machine. The other half of "do not assume" is the thing you asked about: a library's latest version, what a repository does, what a file contains. Models answer those from memory, and memory goes stale.
+
+When a request names something, the agent gets this before it starts:
+
+```text
+[assume-nothing: targets]
+This request is about: orbit-labs/quasar-cli.
+Facts about them are UNKNOWN until you look them up in this session, in a primary source
+(the official docs, the repository, the file itself). What you remember may be outdated or wrong.
+An answer that states facts about them without a lookup will be stopped once.
+```
+
+Every finished tool call is checked for those names (a page fetched, a search, a file read, a command whose input or output mentions them). When the agent is about to finish, an answer about a named thing that nothing looked at is sent back once. An answer that already says it is not verified goes through.
+
+What it picks up as a name: `owner/repo`, URLs, `hyphenated-names` and `dotted.names`, `backticked` and “quoted” names, and a word right before 「について」「とは」「を調べて」 or after "research", "look up", "what is". A plain word in a sentence is not taken, so "make it faster" names nothing.
+
+Read it honestly: it checks that something was **looked at**, not that the answer is **right**. It is a nudge with teeth, not a fact checker. In live runs the note alone was usually enough: the agent searched first, or said up front that it was answering from memory.
+
 ## Benchmark
 
 Same tasks, same model, with and without `assume-nothing`. Each task is a small fictional project with a trap: the project suggests a tool that is not installed (a `pnpm` lock file but only `npm`; a Makefile but no `make`; a README that says `python` but only `python3`; a media question without `ffprobe`). 4 tasks × 3 runs per condition, Claude Code in headless mode, 2026-10-29.
@@ -85,7 +106,7 @@ Cloud sessions do not install plugins, but they do run hooks committed in a repo
 curl -fsSL https://raw.githubusercontent.com/kajisho5/assume-nothing/main/scripts/setup-repo.sh | sh
 ```
 
-and to commit what it adds (`.claude/assume-nothing/run.sh` and three hooks in `.claude/settings.json`). From then on every Claude Code session on that repository probes first: cloud sessions, your laptop, your teammates. On first use the launcher downloads the pinned release for the machine and checks its SHA-256; if anything fails it stays silent and lets the agent work. Remove it with `.claude/assume-nothing/run.sh install-repo --remove`.
+and to commit what it adds (`.claude/assume-nothing/run.sh` and five hooks in `.claude/settings.json`). From then on every Claude Code session on that repository probes first: cloud sessions, your laptop, your teammates. On first use the launcher downloads the pinned release for the machine and checks its SHA-256; if anything fails it stays silent and lets the agent work. Remove it with `.claude/assume-nothing/run.sh install-repo --remove`.
 
 Cloud sessions load a repository's hooks only when the session has that one repository, and the download needs network access to GitHub (allowed by the default "Trusted" level).
 
@@ -115,6 +136,9 @@ Then start a new session. Codex and Gemini support is new: the packages install 
 | Before a shell command | If a command name is not on PATH: stop it once, list what is installed. The same command a second time goes through (it may be an alias, a shell function, or on a PATH the hook cannot see). Commands after an install in the same line are not checked |
 | Working folder changed | Re-check the folder and tell the agent |
 | After an install command (`pip install`, `npm i`, `brew install`, …) | Re-check tools and report what changed |
+| A request comes in | Note the things it names and tell the agent they are UNKNOWN until looked up. If the session has no probe yet (the plugin arrived after the session started), probe here |
+| After any tool call | Note which named things it looked at |
+| The agent is about to finish | If the answer is about a named thing nothing looked at, send it back once. The second time it goes through |
 
 On demand, the agent can run:
 
@@ -124,11 +148,12 @@ On demand, the agent can run:
 ### What it will not do
 
 - It never answers "allow". Your own permission prompts work as before.
-- It never reads your project's files, environment variable values, or secrets. It records names and presence. The only files it reads are its own `.assume-nothing.json` and system information (`/etc/os-release`, `/proc/meminfo`); it also runs `git status` to count changes.
+- It never reads your project's files, environment variable values, or secrets. It records names and presence. For the lookup check it reads your request, tool inputs and outputs, and the final answer in memory, and keeps only the names it picked out. The only files it reads are its own `.assume-nothing.json` and system information (`/etc/os-release`, `/proc/meminfo`); it also runs `git status` to count changes.
 - It never sends anything anywhere. `deep net` sends a `HEAD` request to github.com, pypi.org and registry.npmjs.org, only when the agent asks for it.
 - If it cannot do its job, it lets the call through: an internal error, a missing binary, or a probe record that cannot be saved (a block that cannot be remembered would never end, so it becomes a warning instead). Set `ASSUME_NOTHING_STRICT=1` to keep blocking when the record cannot be saved.
 - On macOS, the stand-ins in `/usr/bin` that only open an installer (for example `git` or `python3` without the Command Line Tools) are reported as not installed, and never run.
-- It is not a security boundary. Some tools do not pass through hooks.
+- It does not check whether an answer is correct, only whether something was looked at.
+- It is not a security boundary. Some tools do not pass through hooks. In Codex, hosted web search does not run hooks, so a lookup done only that way is not seen; the agent is sent back once and can say where it read it.
 
 ## Configure
 
@@ -141,6 +166,7 @@ Add tools your project depends on to `.assume-nothing.json` in the project folde
 | Variable | Effect |
 | --- | --- |
 | `ASSUME_NOTHING_STRICT=1` | Keep blocking when the probe record cannot be saved |
+| `ASSUME_NOTHING_TARGETS=0` | Turn off the lookup check (the environment probe still runs) |
 | `ASSUME_NOTHING_DATA=<dir>` | Where probe records are kept (default: the plugin's data folder) |
 
 ## Requirements
@@ -153,6 +179,8 @@ Add tools your project depends on to `.assume-nothing.json` in the project folde
 
 - [x] Codex CLI and Gemini CLI (experimental, v0.2)
 - [x] A published A/B benchmark (small; more tasks welcome)
+- [x] Lookup check for the things a request names (v0.4)
+- [ ] A benchmark for the lookup check
 - [ ] Windows without Git Bash (PowerShell entry point)
 
 ## Build from source
