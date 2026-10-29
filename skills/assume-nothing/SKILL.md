@@ -22,6 +22,7 @@ Run these through the shell tool. They print facts in the same format as the pro
 - Network access: `"${CLAUDE_PLUGIN_ROOT}/scripts/run.sh" deep net`
 - One tool in depth (path, version, extra checks for some tools): `"${CLAUDE_PLUGIN_ROOT}/scripts/run.sh" deep tool <name>`
 - The full probe again, for the current folder: `"${CLAUDE_PLUGIN_ROOT}/scripts/run.sh" probe`
+- What assume-nothing did in this session (when the user asks): `"${CLAUDE_PLUGIN_ROOT}/scripts/run.sh" status`
 
 ## When a call is blocked
 

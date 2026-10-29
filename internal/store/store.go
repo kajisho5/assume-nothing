@@ -126,6 +126,60 @@ func TargetLogPath(session string) (string, error) {
 	return filepath.Join(d, safeName(session)+".targets.log"), nil
 }
 
+// Lock serializes changes to one session's record across hook processes that
+// run at the same time (parallel tool calls). It waits up to two seconds and
+// then goes ahead anyway: a lost update is better than a stuck agent.
+func Lock(session string) (unlock func()) {
+	p, err := path(session)
+	if err != nil {
+		return func() {}
+	}
+	lp := p + ".lock"
+	_ = os.MkdirAll(filepath.Dir(lp), 0o700)
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		f, err := os.OpenFile(lp, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+		if err == nil {
+			f.Close()
+			return func() { os.Remove(lp) }
+		}
+		if info, serr := os.Stat(lp); serr == nil && time.Since(info.ModTime()) > 10*time.Second {
+			os.Remove(lp) // left behind by a process that died
+			continue
+		}
+		if time.Now().After(deadline) {
+			return func() {}
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+// Latest returns the id of the most recently updated session record.
+func Latest() (string, error) {
+	d, err := Dir()
+	if err != nil {
+		return "", err
+	}
+	entries, err := os.ReadDir(d)
+	if err != nil {
+		return "", err
+	}
+	var best string
+	var bestT time.Time
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") {
+			continue
+		}
+		if info, err := e.Info(); err == nil && info.ModTime().After(bestT) {
+			best, bestT = strings.TrimSuffix(e.Name(), ".json"), info.ModTime()
+		}
+	}
+	if best == "" {
+		return "", ErrNotFound
+	}
+	return best, nil
+}
+
 // ErrNotFound means no record exists yet for the session.
 var ErrNotFound = errors.New("no probe record for this session")
 

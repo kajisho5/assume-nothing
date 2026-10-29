@@ -109,6 +109,7 @@ func editSettings(root string, add bool) error {
 		{"PreToolUse", "pre-tool-use", ""},
 		{"PostToolUse", "post-tool-use", ""},
 		{"Stop", "stop", ""},
+		{"SubagentStop", "subagent-stop", ""},
 	}
 	for _, e := range events {
 		groups, _ := hooks[e.name].([]any)

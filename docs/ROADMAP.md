@@ -37,13 +37,13 @@ and the machine has 1.24, so a build silently downloaded a toolchain.
 - [x] Compare with what is installed and report a `MISMATCH` section.
 - [x] Only these version fields are read; nothing else from project files.
 
-## v0.7: cover more, and show it
+## v0.7: cover more, and show it (done)
 
-- [ ] Subagent answers get the same lookup check (SubagentStop).
-- [ ] When an answer is sent back, the user sees a one-line notice, not only the agent.
-- [ ] Parallel tool calls no longer race on the session record (duplicate
+- [x] Subagent answers get the same lookup check (SubagentStop).
+- [x] When an answer is sent back, the user sees a one-line notice, not only the agent.
+- [x] Parallel tool calls no longer race on the session record (duplicate
       "working folder changed" notes).
-- [ ] `assume-nothing status`: what this session probed, which names were
+- [x] `assume-nothing status`: what this session probed, which names were
       looked up, what was sent back.
 
 ## v0.8: prove it

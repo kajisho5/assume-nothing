@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.0] - 2026-10-29
+
+- Subagent answers get the same lookup check (SubagentStop). Claude Code's own internal agents are left alone, and a subagent's send-back does not use up the main agent's.
+- The user sees a one-line notice when an answer is sent back or a command is stopped (Claude Code `systemMessage`), not only the agent.
+- Hook processes of parallel tool calls take turns on the session record, so a folder change is reported once, not once per call.
+- `assume-nothing status [SESSION]`: what was probed, which commands were stopped, which names were looked up and how, and how many answers were sent back.
+
 ## [0.6.0] - 2026-10-29
 
 - The probe checks versions, not only presence. It reads the version a project asks for (`go.mod` `go`/`toolchain`, `.nvmrc`, `.node-version`, `package.json` `engines.node`, `.python-version`, `pyproject.toml` `requires-python`, `rust-toolchain(.toml)`, `.ruby-version`, `.tool-versions`), compares it with what is installed, and lists differences under a new `MISMATCH` section. Found on this very repository: `go.mod` asks for Go 1.27, the machine had 1.24.7, and builds were silently downloading a toolchain.

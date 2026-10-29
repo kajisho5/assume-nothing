@@ -35,6 +35,8 @@ type Input struct {
 	StopActive    bool            `json:"stop_hook_active"` // Stop, AfterAgent
 	LastMessage   string          `json:"last_assistant_message"`
 	PromptResp    string          `json:"prompt_response"` // Gemini's AfterAgent
+	AgentID       string          `json:"agent_id"`        // SubagentStop
+	AgentType     string          `json:"agent_type"`      // SubagentStop
 }
 
 // Output is what the hook prints on stdout. Nil means "say nothing".
@@ -42,6 +44,8 @@ type Output struct {
 	Decision           string    `json:"decision,omitempty"` // only "block", only for Stop
 	Reason             string    `json:"reason,omitempty"`
 	HookSpecificOutput *Specific `json:"hookSpecificOutput,omitempty"`
+	Event              string    `json:"-"` // "Stop" or "SubagentStop" for a send-back
+	Notice             string    `json:"-"` // one line for the user, where the agent can show it
 }
 
 // Specific carries the event-specific answer.
@@ -140,7 +144,7 @@ func bashCommand(in Input) string {
 //
 // The whole line must be that one command (no ; & | ` $ ( ) < > or newline),
 // and its path must contain "assume-nothing".
-var selfCall = regexp.MustCompile(`^\s*["']?[^;&|` + "`" + `$()<>\n"']*assume-nothing[^;&|` + "`" + `$()<>\n"' ]*["']?\s+(deep|probe|version|help)\b[^;&|` + "`" + `$()<>\n]*$`)
+var selfCall = regexp.MustCompile(`^\s*["']?[^;&|` + "`" + `$()<>\n"']*assume-nothing[^;&|` + "`" + `$()<>\n"' ]*["']?\s+(deep|probe|status|version|help)\b[^;&|` + "`" + `$()<>\n]*$`)
 
 // Clean is a short alias used in messages.
 func Clean(s string) string { return probe.Clean(s, 120) }
@@ -199,6 +203,7 @@ func PreToolUse(in Input) *Output {
 	if cmd != "" {
 		if missing := gate.MissingCommands(cmd, st); len(missing) > 0 {
 			out = deny(missingReason(missing, st))
+			out.Notice = "assume-nothing: stopped a command that is not installed: " + strings.Join(missing, ", ") + "."
 		}
 	}
 	if err := save(st); err != nil {
@@ -403,7 +408,19 @@ const SubstantialAnswer = 120
 
 // Stop runs when the agent is about to finish. If its answer talks about a
 // target that nothing in the session looked at, it is sent back once.
-func Stop(in Input) *Output {
+func Stop(in Input) *Output { return stopCheck(in, "", "Stop") }
+
+// SubagentStop gives a subagent's answer the same check. Claude Code's own
+// internal agents (no agent type) are left alone, and a subagent's send-back
+// does not use up the main agent's.
+func SubagentStop(in Input) *Output {
+	if in.AgentType == "" {
+		return nil
+	}
+	return stopCheck(in, "sub:"+in.AgentID+":", "SubagentStop")
+}
+
+func stopCheck(in Input, scope, event string) *Output {
 	if in.StopActive || TargetsOff() {
 		return nil // already sent back once (trust it now), or turned off
 	}
@@ -435,7 +452,7 @@ func Stop(in Input) *Output {
 	var hit []target.Target
 	var keys []string
 	for _, t := range ts.Unseen() {
-		if ts.Warned[t.Key] {
+		if ts.Warned[scope+t.Key] {
 			continue
 		}
 		switch {
@@ -455,13 +472,13 @@ func Stop(in Input) *Output {
 			continue
 		}
 		hit = append(hit, t)
-		keys = append(keys, t.Key)
+		keys = append(keys, scope+t.Key)
 	}
 	// A question about something that changes needs some lookup this turn.
 	// Memory is the wrong source here, so a hedge does not excuse it the first time.
-	freshMiss := ts.Fresh && !ts.Looked && !ts.Warned[ts.FreshKey()] && (substantial || len(hit) > 0)
+	freshMiss := ts.Fresh && !ts.Looked && !ts.Warned[scope+ts.FreshKey()] && (substantial || len(hit) > 0)
 	if freshMiss {
-		keys = append(keys, ts.FreshKey())
+		keys = append(keys, scope+ts.FreshKey())
 	}
 	if len(keys) == 0 {
 		return nil
@@ -476,7 +493,14 @@ func Stop(in Input) *Output {
 	} else if freshMiss {
 		what += "; the request also asks about something that changes over time, and nothing looked that up"
 	}
-	return &Output{Decision: "block", Reason: "assume-nothing: " + what + ".\n" +
+	notice := "assume-nothing: sent the answer back once, because nothing looked up " + names(hit) + "."
+	if len(hit) == 0 {
+		notice = "assume-nothing: sent the answer back once, because a question about the latest version or price was answered without a lookup."
+	}
+	if event == "SubagentStop" {
+		notice = strings.Replace(notice, "the answer", "a subagent's answer", 1)
+	}
+	return &Output{Event: event, Notice: notice, Decision: "block", Reason: "assume-nothing: " + what + ".\n" +
 		"Before you finish, either look it up in a primary source (official docs, the repository, the file itself) " +
 		"and correct the answer where it was wrong, or tell the user plainly which statements are not verified.\n" +
 		"If you did check it with something this hook cannot see (for example a hosted web search), say where you read it, then finish."}
@@ -502,6 +526,14 @@ func Run(event string, data []byte) (*Output, error) {
 		in.SessionID = "default"
 	}
 	switch event {
+	case "stop", "Stop", "AfterAgent", "subagent-stop", "SubagentStop":
+		// these only read and append to the target log
+	default:
+		// Parallel tool calls each run a hook process; one at a time per
+		// session, so they do not overwrite each other's record.
+		defer store.Lock(in.SessionID)()
+	}
+	switch event {
 	case "session-start", "SessionStart":
 		return SessionStart(in), nil
 	case "pre-tool-use", "PreToolUse", "BeforeTool":
@@ -512,6 +544,8 @@ func Run(event string, data []byte) (*Output, error) {
 		return UserPromptSubmit(in), nil
 	case "stop", "Stop", "AfterAgent":
 		return Stop(in), nil
+	case "subagent-stop", "SubagentStop":
+		return SubagentStop(in), nil
 	}
 	return nil, fmt.Errorf("unknown hook event %q", event)
 }
@@ -547,10 +581,24 @@ func Encode(out *Output, agent string) ([]byte, error) {
 	if out == nil || (out.HookSpecificOutput == nil && out.Decision == "") {
 		return nil, nil
 	}
-	if agent == Claude && out.Decision == "block" {
+	if agent == Claude {
 		// Claude Code continues the turn on Stop additionalContext too, and shows
-		// it as hook feedback instead of a hook error.
-		return json.Marshal(Output{HookSpecificOutput: &Specific{HookEventName: "Stop", AdditionalContext: out.Reason}})
+		// it as hook feedback instead of a hook error. systemMessage shows the
+		// user a one-line notice.
+		ev := out.Event
+		if ev == "" {
+			ev = "Stop"
+		}
+		msg := map[string]any{}
+		if out.Decision == "block" {
+			msg["hookSpecificOutput"] = Specific{HookEventName: ev, AdditionalContext: out.Reason}
+		} else {
+			msg["hookSpecificOutput"] = out.HookSpecificOutput
+		}
+		if out.Notice != "" {
+			msg["systemMessage"] = out.Notice
+		}
+		return json.Marshal(msg)
 	}
 	if agent != Gemini {
 		return json.Marshal(out)

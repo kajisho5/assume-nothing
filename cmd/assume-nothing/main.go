@@ -27,13 +27,14 @@ const usage = `assume-nothing — make your coding agent probe before it acts.
 
 Usage:
   assume-nothing hook [--agent claude|codex|gemini] <event>          (reads the agent's JSON on stdin)
-        events: session-start, user-prompt-submit, pre-tool-use, post-tool-use, stop
+        events: session-start, user-prompt-submit, pre-tool-use, post-tool-use, stop, subagent-stop
               (also SessionStart, UserPromptSubmit, PreToolUse, BeforeAgent, BeforeTool, AfterAgent, ...)
   assume-nothing probe [--json] [--cwd DIR]                         print the session probe
   assume-nothing deep net [--json]                                  check outbound network access
   assume-nothing deep tool <name> [--json]                          check one tool in depth
   assume-nothing install-repo --checksums FILE [DIR]                  set up hooks in a repository (works in cloud sessions)
   assume-nothing install-repo --remove [DIR]                         take them out again
+  assume-nothing status [SESSION]                                   what it did in a session (default: the latest)
   assume-nothing version
 `
 
@@ -52,6 +53,17 @@ func main() {
 		os.Exit(runDeep(os.Args[2:]))
 	case "install-repo":
 		os.Exit(runInstallRepo(os.Args[2:]))
+	case "status":
+		session := ""
+		if len(os.Args) > 2 {
+			session = os.Args[2]
+		}
+		out, err := hook.Status(session)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "assume-nothing:", err)
+			os.Exit(1)
+		}
+		fmt.Print(out)
 	case "version", "--version", "-v":
 		fmt.Println("assume-nothing", version)
 	case "help", "--help", "-h":
@@ -93,7 +105,7 @@ func runInstallRepo(args []string) int {
 		fmt.Fprintln(os.Stderr, "assume-nothing:", err)
 		return 1
 	}
-	fmt.Printf("assume-nothing v%s set up in %s\n  %s\n  .claude/settings.json (5 hooks)\nCommit both, and every Claude Code session on this repository probes first, cloud sessions included.\n", version, dir, install.Launcher)
+	fmt.Printf("assume-nothing v%s set up in %s\n  %s\n  .claude/settings.json (6 hooks)\nCommit both, and every Claude Code session on this repository probes first, cloud sessions included.\n", version, dir, install.Launcher)
 	return 0
 }
 
