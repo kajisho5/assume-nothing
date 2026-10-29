@@ -31,6 +31,7 @@ func setup(t *testing.T) {
 	t.Setenv("ASSUME_NOTHING_DATA", t.TempDir())
 	t.Setenv("ASSUME_NOTHING_STRICT", "")
 	t.Setenv("CLAUDE_PLUGIN_OPTION_STRICT", "")
+	t.Setenv("ASSUME_NOTHING_LANG", "en") // most tests check the English text
 }
 
 func event(t *testing.T, name string, in map[string]any) *Output {
@@ -596,5 +597,66 @@ func TestLookupCoversOtherSpelling(t *testing.T) {
 		"tool_input": map[string]any{"query": "Luminas Varga"}, "tool_response": "no results"})
 	if out := event(t, "stop", map[string]any{"session_id": "sq", "last_assistant_message": "ルミナスバルガは有名な起業家です。"}); out == nil {
 		t.Fatal("a failed search covered the name")
+	}
+}
+
+func TestJapaneseMessages(t *testing.T) {
+	setup(t)
+	t.Setenv("ASSUME_NOTHING_LANG", "")
+	t.Setenv("CLAUDE_PROJECT_DIR", "/work/nebula")
+	dir := project(t)
+	event(t, "session-start", map[string]any{"session_id": "ja", "cwd": dir})
+	out := event(t, "user-prompt-submit", map[string]any{"session_id": "ja", "cwd": dir, "prompt": "lumen-kitについて調べて"})
+	if !strings.Contains(out.HookSpecificOutput.AdditionalContext, "この依頼の対象: lumen-kit") {
+		t.Fatalf("note not in Japanese: %s", out.HookSpecificOutput.AdditionalContext)
+	}
+	out = event(t, "pre-tool-use", map[string]any{"session_id": "ja", "cwd": dir, "tool_name": "Bash", "tool_input": map[string]any{"command": "zz-fictional-tool"}})
+	if !strings.Contains(out.HookSpecificOutput.PermissionDecisionReason, "入っていないコマンドです") || !strings.Contains(out.Notice, "止めました") {
+		t.Fatalf("deny not in Japanese: %+v", out)
+	}
+	out = event(t, "stop", map[string]any{"session_id": "ja", "last_assistant_message": "lumen-kit は40個の部品を持つ道具です。"})
+	b, _ := Encode(out, Claude)
+	if !strings.Contains(string(b), "差し戻しました（lumen-kit）") || !strings.Contains(string(b), "調べた記録がありません") {
+		t.Fatalf("send-back not in Japanese: %s", b)
+	}
+}
+
+func TestLocalBinHint(t *testing.T) {
+	setup(t)
+	dir := project(t)
+	os.MkdirAll(filepath.Join(dir, "node_modules", ".bin"), 0o755)
+	os.WriteFile(filepath.Join(dir, "node_modules", ".bin", "zz-lintkit"), []byte("#!/bin/sh\n"), 0o755)
+	event(t, "session-start", map[string]any{"session_id": "lb", "cwd": dir})
+	out := event(t, "pre-tool-use", map[string]any{"session_id": "lb", "cwd": dir, "tool_name": "Bash", "tool_input": map[string]any{"command": "zz-lintkit src"}})
+	if out == nil || !strings.Contains(out.HookSpecificOutput.PermissionDecisionReason, "npx zz-lintkit") {
+		t.Fatalf("no npx hint: %+v", out)
+	}
+}
+
+func TestFollowUpCarriesTargets(t *testing.T) {
+	setup(t)
+	dir := project(t)
+	event(t, "session-start", map[string]any{"session_id": "fu", "cwd": dir})
+	event(t, "user-prompt-submit", map[string]any{"session_id": "fu", "prompt": "zorvexmarkについて調べて"})
+	event(t, "post-tool-use", map[string]any{"session_id": "fu", "tool_name": "Read", "tool_input": map[string]any{"file_path": dir + "/zorvexmark/README.md"}, "tool_response": "zorvexmark: a fictional renderer used only in tests."})
+	out := event(t, "user-prompt-submit", map[string]any{"session_id": "fu", "prompt": "それの最新版は？"})
+	if out == nil || !strings.Contains(out.HookSpecificOutput.AdditionalContext, "zorvexmark") {
+		t.Fatalf("follow-up did not carry the name: %+v", out)
+	}
+	// Read before the follow-up: stale for a "latest" question.
+	if out := event(t, "stop", map[string]any{"session_id": "fu", "last_assistant_message": "zorvexmark の最新版は 9.9 です。"}); out == nil {
+		t.Fatal("an earlier read counted for a later latest-version question")
+	}
+}
+
+func TestOneSearchDoesNotCoverTwoNames(t *testing.T) {
+	setup(t)
+	dir := project(t)
+	event(t, "session-start", map[string]any{"session_id": "two", "cwd": dir})
+	event(t, "user-prompt-submit", map[string]any{"session_id": "two", "prompt": "lumen-kit と orbit-cli を比べて"})
+	event(t, "post-tool-use", map[string]any{"session_id": "two", "tool_name": "WebSearch", "tool_input": map[string]any{"query": "lumen kit"}, "tool_response": "Lumen Kit is a fictional widget toolkit made for this test."})
+	out := event(t, "stop", map[string]any{"session_id": "two", "last_assistant_message": "lumen-kit has widgets; orbit-cli builds things."})
+	if out == nil || !strings.Contains(out.Reason, "orbit-cli") || strings.Contains(out.Reason, "lumen-kit,") {
+		t.Fatalf("expected only orbit-cli to be unlooked: %+v", out)
 	}
 }

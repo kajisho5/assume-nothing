@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.12.0] - 2026-10-30
+
+- Japanese. When the request is written in Japanese, everything people read is in Japanese: the one-line notices, the send-back, the note about what the request is about, the "not installed" message, and `status`. `ASSUME_NOTHING_LANG=ja|en` fixes the language; otherwise the system locale decides until the first request.
+- A command found in the project's `node_modules/.bin`, `.venv/bin`, `venv/bin` or `vendor/bin` is still stopped (it is not on PATH), but the message says how to run it (`npx …`, the virtual environment).
+- A web search that follows a request covers the request's name only when the request named one thing. With several names, each must be looked at.
+- Follow-ups: 「それの最新版は？」 / "what about its license?" carry the names of the previous request.
+- "Latest" questions need a lookup since that request; something read earlier in the session no longer counts. More words mark a question about something that changes (「現在の」「今年」「ニュース」「動向」, "currently", "current version", "news", "today").
+
 ## [0.11.1] - 2026-10-30
 
 - A successful web or network lookup after a request covers the names in that request, even when it spells them differently. In a live run, a question about 「イーロンマスク」 was searched as "Elon Musk", and the answer was sent back as if nothing had been looked up.
