@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -71,7 +72,7 @@ func TestRepoKeepsExistingSettingsAndIsIdempotent(t *testing.T) {
 			t.Errorf("launcher lacks %q", want)
 		}
 	}
-	if info, _ := os.Stat(filepath.Join(root, Launcher)); info.Mode()&0o100 == 0 {
+	if info, _ := os.Stat(filepath.Join(root, Launcher)); runtime.GOOS != "windows" && info.Mode()&0o100 == 0 {
 		t.Error("launcher is not executable")
 	}
 
