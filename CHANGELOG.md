@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.6.0] - 2026-10-29
+
+- The probe checks versions, not only presence. It reads the version a project asks for (`go.mod` `go`/`toolchain`, `.nvmrc`, `.node-version`, `package.json` `engines.node`, `.python-version`, `pyproject.toml` `requires-python`, `rust-toolchain(.toml)`, `.ruby-version`, `.tool-versions`), compares it with what is installed, and lists differences under a new `MISMATCH` section. Found on this very repository: `go.mod` asks for Go 1.27, the machine had 1.24.7, and builds were silently downloading a toolchain.
+- Only those version fields are read from project files.
+
 ## [0.5.0] - 2026-10-29
 
 Stricter lookup check (see [docs/ROADMAP.md](docs/ROADMAP.md)).

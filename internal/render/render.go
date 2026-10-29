@@ -41,8 +41,8 @@ func Snapshot(st *store.State, deepCmd string) string {
 	line("git", "git")
 	line("agent instruction files present", "instructions")
 
-	var langs, pms, tools []string
-	var missLang, missPM, missTool, missCmd []string
+	var langs, pms, tools, vers []string
+	var missLang, missPM, missTool, missCmd, mismatch []string
 	var unknown []string
 	for _, f := range st.Facts {
 		short := f.Key[strings.IndexByte(f.Key, '.')+1:]
@@ -55,6 +55,19 @@ func Snapshot(st *store.State, deepCmd string) string {
 				missLang = append(missLang, short)
 			default:
 				unknown = append(unknown, short+": "+f.Why)
+			}
+		case strings.HasPrefix(f.Key, "ver."):
+			switch f.Status {
+			case store.OK:
+				vers = append(vers, f.Value)
+			case store.Missing:
+				m := f.Value
+				if f.Why != "" {
+					m += ". " + f.Why
+				}
+				mismatch = append(mismatch, m)
+			default:
+				unknown = append(unknown, f.Why)
 			}
 		case strings.HasPrefix(f.Key, "cmd.") && f.Status == store.Missing:
 			missCmd = append(missCmd, short)
@@ -102,6 +115,16 @@ func Snapshot(st *store.State, deepCmd string) string {
 	}
 	if len(tools) > 0 {
 		fmt.Fprintf(&b, "- tools: %s\n", strings.Join(tools, ", "))
+	}
+	for _, v := range vers {
+		fmt.Fprintf(&b, "- version: %s\n", v)
+	}
+
+	if len(mismatch) > 0 {
+		b.WriteString("MISMATCH (the project asks for a version this machine does not have)\n")
+		for _, m := range mismatch {
+			fmt.Fprintf(&b, "- %s\n", m)
+		}
 	}
 
 	b.WriteString("NOT INSTALLED (checked on PATH)\n")

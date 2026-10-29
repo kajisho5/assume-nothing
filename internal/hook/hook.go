@@ -188,6 +188,8 @@ func PreToolUse(in Input) *Output {
 		ctx, cancel := context.WithTimeout(context.Background(), probe.Budget)
 		tf := probe.TargetFacts(ctx, cwd)
 		cancel()
+		tf = append(tf, probe.VersionFacts(cwd, st.Facts)...)
+		st.DropPrefix("ver.")
 		st.SetFacts(tf)
 		st.Cwd = cwd
 		notes = append(notes, "assume-nothing: the working folder changed. New folder facts:\n"+render.Facts(tf))

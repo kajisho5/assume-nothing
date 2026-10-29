@@ -38,3 +38,17 @@ func TestCap(t *testing.T) {
 		t.Fatal("short text changed")
 	}
 }
+
+func TestSnapshotMismatch(t *testing.T) {
+	st := store.New("m", "/work/nebula")
+	st.Facts = []store.Fact{
+		{Key: "ver.go go.mod (go)", Status: store.Missing, Value: "go >=1.27 asked by go.mod (go), but 1.24.7 is installed", Why: "Go may download that toolchain."},
+		{Key: "ver.node .nvmrc", Status: store.OK, Value: "node 22 asked by .nvmrc; 22.1.0 installed"},
+	}
+	s := Snapshot(st, "")
+	for _, want := range []string{"MISMATCH", "1.24.7 is installed. Go may download", "- version: node 22 asked by .nvmrc"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("snapshot lacks %q:\n%s", want, s)
+		}
+	}
+}
