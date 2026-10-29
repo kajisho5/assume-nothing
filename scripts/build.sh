@@ -7,6 +7,9 @@ set -eu
 version=${1:?version}
 out=${2:?out dir}
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+case "$out" in
+  ""|/|.|..|"$root"|"$HOME") echo "refusing to use '$out' as the output folder" >&2; exit 1 ;;
+esac
 rm -rf "$out"
 mkdir -p "$out/plugin/libexec" "$out/assets"
 

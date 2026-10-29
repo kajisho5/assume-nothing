@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 
@@ -48,13 +49,14 @@ type Specific struct {
 // Now is the clock; tests replace it.
 var Now = time.Now
 
+// save writes the session record; tests replace it to simulate a full disk.
+var save = store.Save
+
 // Strict reports whether a broken probe should keep blocking tools.
 func Strict() bool {
-	for _, k := range []string{"ASSUME_NOTHING_STRICT", "CLAUDE_PLUGIN_OPTION_STRICT"} {
-		switch strings.ToLower(os.Getenv(k)) {
-		case "1", "true", "yes", "on":
-			return true
-		}
+	switch strings.ToLower(os.Getenv("ASSUME_NOTHING_STRICT")) {
+	case "1", "true", "yes", "on":
+		return true
 	}
 	return false
 }
@@ -90,7 +92,7 @@ func SessionStart(in Input) *Output {
 			}
 		}
 	}
-	if err := store.Save(st); err != nil {
+	if err := save(st); err != nil {
 		fmt.Fprintln(os.Stderr, "assume-nothing: could not save the probe record:", err)
 	}
 	store.Prune(30 * 24 * time.Hour)
@@ -108,8 +110,12 @@ func bashCommand(in Input) string {
 	return ti.Command
 }
 
+// selfCall matches the agent running this tool's own deep checks, e.g.
+// "/path/scripts/run.sh" deep net  or  assume-nothing-linux-amd64 probe
+var selfCall = regexp.MustCompile(`(assume-nothing[^\s"']*|scripts/run\.sh)["']?\s+(deep|probe|version|help)\b`)
+
 func callsSelf(cmd string) bool {
-	return strings.Contains(cmd, gate.Self)
+	return selfCall.MatchString(cmd)
 }
 
 // PreToolUse blocks tool calls until a probe exists, and blocks commands that are not installed.
@@ -125,14 +131,15 @@ func PreToolUse(in Input) *Output {
 		}
 		st = fresh(in)
 		snap := render.Snapshot(st, DeepCommand)
-		if serr := store.Save(st); serr != nil {
+		if serr := save(st); serr != nil {
 			fmt.Fprintln(os.Stderr, "assume-nothing: could not save the probe record:", serr)
 			if Strict() {
 				return deny("assume-nothing: the probe record cannot be saved, and strict mode is on, so tools stay blocked. Fix the plugin data folder or turn strict mode off.\n\n" + snap)
 			}
-			// Without a record we cannot remember that we already blocked once,
-			// so hand over the facts and let the call through.
-			return withContext("PreToolUse", snap)
+			// Without a record we cannot remember anything between calls, so
+			// blocking could never end. Let the call through quietly; the
+			// session-start snapshot already gave the agent the facts.
+			return nil
 		}
 		return deny("assume-nothing: this session had no environment probe yet, so one was just run. Read it, then make the same call again.\n\n" + snap)
 	}
@@ -154,8 +161,14 @@ func PreToolUse(in Input) *Output {
 			out = deny(missingReason(missing, st))
 		}
 	}
-	if err := store.Save(st); err != nil {
+	if err := save(st); err != nil {
 		fmt.Fprintln(os.Stderr, "assume-nothing: could not save the probe record:", err)
+		if out != nil && !Strict() {
+			// The block could not be recorded, so a retry would be blocked
+			// again forever. Warn instead of blocking.
+			notes = append(notes, out.HookSpecificOutput.PermissionDecisionReason)
+			out = nil
+		}
 	}
 	if out != nil {
 		if len(notes) > 0 {
@@ -209,7 +222,7 @@ func PostToolUse(in Input) *Output {
 	}
 	st.SetFacts(after)
 	gate.Forget(st)
-	if err := store.Save(st); err != nil {
+	if err := save(st); err != nil {
 		fmt.Fprintln(os.Stderr, "assume-nothing: could not save the probe record:", err)
 	}
 	if len(changed) == 0 {

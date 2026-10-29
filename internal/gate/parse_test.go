@@ -39,6 +39,15 @@ func TestCommandNames(t *testing.T) {
 		{"timeout -s KILL 10 node server.js", []string{"node"}},
 		{"find . -name '*.go' | xargs -I {} gofmt -l {}", []string{"find", "gofmt"}},
 		{"nice -n 10 ffmpeg -i a.mov b.mp4", []string{"ffmpeg"}},
+		{"sudo -u root ls", []string{"ls"}},
+		{"command -v zzq", nil},
+		{"if ! command -v zzq >/dev/null 2>&1; then echo no; fi", nil},
+		{"exec 3>&1", nil},
+		{"arr=(a b c); echo ${arr[0]}", nil},
+		{"x=$(( 1 + 2 )); echo $x", nil},
+		{"f() { zzq; }; f", []string{"zzq"}},
+		{"function build { make all; }; build", []string{"make"}},
+		{"npm test -- -i && zzq", []string{"npm", "zzq"}},
 	}
 	for _, c := range cases {
 		got := CommandNames(c.line)
@@ -52,8 +61,8 @@ func TestCommandNames(t *testing.T) {
 }
 
 func TestInstallsSomething(t *testing.T) {
-	yes := []string{"pip install requests", "npm i -D vite", "brew install ffmpeg", "sudo apt-get install -y jq", "uv add httpx", "go install golang.org/x/tools/gopls@latest", "cargo install ripgrep", "pnpm add zod"}
-	no := []string{"npm test", "pip list", "go build ./...", "brew list", "echo install"}
+	yes := []string{"pip install requests", "npm i -D vite", "brew install ffmpeg", "sudo apt-get install -y jq", "uv add httpx", "go install golang.org/x/tools/gopls@latest", "cargo install ripgrep", "pnpm add zod", "uv pip install rich", "pacman -Syu --noconfirm jq"}
+	no := []string{"npm test", "pip list", "go build ./...", "brew list", "echo install", "npm test -- -i", "echo go get add", "git add -A", "npm run build -- --install"}
 	for _, l := range yes {
 		if !InstallsSomething(l) {
 			t.Errorf("InstallsSomething(%q) = false, want true", l)

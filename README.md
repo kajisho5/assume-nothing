@@ -66,7 +66,7 @@ Then start a new session.
 | --- | --- |
 | Session start, resume, clear, compact | Probe the environment (2-second budget), save it, hand it to the agent |
 | Before any tool call | If this session has no probe: run one and stop the call, with the probe attached |
-| Before a shell command | If a command name is not on PATH: stop it once, list what is installed. The same command a second time goes through (it may be an alias, a shell function, or on a PATH the hook cannot see) |
+| Before a shell command | If a command name is not on PATH: stop it once, list what is installed. The same command a second time goes through (it may be an alias, a shell function, or on a PATH the hook cannot see). Commands after an install in the same line are not checked |
 | Working folder changed | Re-check the folder and tell the agent |
 | After an install command (`pip install`, `npm i`, `brew install`, …) | Re-check tools and report what changed |
 
@@ -78,9 +78,10 @@ On demand, the agent can run:
 ### What it will not do
 
 - It never answers "allow". Your own permission prompts work as before.
-- It never reads file contents, environment variable values, or secrets. It records names and presence.
+- It never reads your project's files, environment variable values, or secrets. It records names and presence. The only files it reads are its own `.assume-nothing.json` and system information (`/etc/os-release`, `/proc/meminfo`); it also runs `git status` to count changes.
 - It never sends anything anywhere. `deep net` sends a `HEAD` request to github.com, pypi.org and registry.npmjs.org, only when the agent asks for it.
-- If anything inside it breaks, it stays silent and lets the call through. It cannot lock your agent out. (Set `ASSUME_NOTHING_STRICT=1` if you prefer it to keep blocking.)
+- If it cannot do its job, it lets the call through: an internal error, a missing binary, or a probe record that cannot be saved (a block that cannot be remembered would never end, so it becomes a warning instead). Set `ASSUME_NOTHING_STRICT=1` to keep blocking when the record cannot be saved.
+- On macOS, the stand-ins in `/usr/bin` that only open an installer (for example `git` or `python3` without the Command Line Tools) are reported as not installed, and never run.
 - It is not a security boundary. Some tools do not pass through hooks.
 
 ## Configure
@@ -93,7 +94,7 @@ Add tools your project depends on to `.assume-nothing.json` in the project folde
 
 | Variable | Effect |
 | --- | --- |
-| `ASSUME_NOTHING_STRICT=1` | Keep blocking even if the probe record cannot be saved |
+| `ASSUME_NOTHING_STRICT=1` | Keep blocking when the probe record cannot be saved |
 | `ASSUME_NOTHING_DATA=<dir>` | Where probe records are kept (default: the plugin's data folder) |
 
 ## Requirements

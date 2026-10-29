@@ -2,6 +2,7 @@ package hook
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -144,6 +145,47 @@ func TestPostToolUseIgnoresNonInstall(t *testing.T) {
 	event(t, "session-start", map[string]any{"session_id": "p", "cwd": dir})
 	if out := event(t, "post-tool-use", map[string]any{"session_id": "p", "cwd": dir, "tool_name": "Bash", "tool_input": map[string]any{"command": "npm test"}}); out != nil {
 		t.Fatalf("non-install command produced output: %+v", out.HookSpecificOutput)
+	}
+}
+
+func TestSaveFailureNeverBlocksForever(t *testing.T) {
+	setup(t)
+	dir := project(t)
+	event(t, "session-start", map[string]any{"session_id": "full", "cwd": dir})
+	old := save
+	defer func() { save = old }()
+	save = func(*store.State) error { return errors.New("disk full (simulated)") }
+	in := map[string]any{"session_id": "full", "cwd": dir, "tool_name": "Bash", "tool_input": map[string]any{"command": "zz-fictional-missing --go"}}
+	for i := 0; i < 3; i++ {
+		out := event(t, "pre-tool-use", in)
+		if out != nil && out.HookSpecificOutput.PermissionDecision == "deny" {
+			t.Fatalf("attempt %d denied although the block cannot be recorded", i+1)
+		}
+		if out == nil || !strings.Contains(out.HookSpecificOutput.AdditionalContext, "not installed") {
+			t.Fatalf("attempt %d: the warning should still reach the agent: %+v", i+1, out)
+		}
+	}
+	// a session with no record and no way to save passes quietly
+	if out := event(t, "pre-tool-use", map[string]any{"session_id": "never-saved", "cwd": dir, "tool_name": "Read", "tool_input": map[string]any{}}); out != nil {
+		t.Fatalf("unsaveable fresh session should pass quietly: %+v", out.HookSpecificOutput)
+	}
+	// strict mode keeps blocking
+	t.Setenv("ASSUME_NOTHING_STRICT", "1")
+	if out := event(t, "pre-tool-use", map[string]any{"session_id": "never-saved-2", "cwd": dir, "tool_name": "Read", "tool_input": map[string]any{}}); out == nil || out.HookSpecificOutput.PermissionDecision != "deny" {
+		t.Fatalf("strict mode should block: %+v", out)
+	}
+}
+
+func TestSelfCallDetection(t *testing.T) {
+	for cmd, want := range map[string]bool{
+		`"/x/plugins/assume-nothing/scripts/run.sh" deep net`: true,
+		`assume-nothing-darwin-arm64 probe --json`:            true,
+		`cd ~/code/assume-nothing && npm test`:                false,
+		`grep -r assume-nothing .`:                            false,
+	} {
+		if got := callsSelf(cmd); got != want {
+			t.Errorf("callsSelf(%q) = %v, want %v", cmd, got, want)
+		}
 	}
 }
 

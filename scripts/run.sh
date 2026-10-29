@@ -22,7 +22,10 @@ esac
 bin="$root/libexec/assume-nothing-$os-$arch"
 [ "$os" = windows ] && bin="$bin.exe"
 
-if [ ! -f "$bin" ]; then
+if [ -f "$bin" ] && [ ! -x "$bin" ]; then
+  chmod +x "$bin" 2>/dev/null
+fi
+if [ ! -x "$bin" ]; then
   if command -v assume-nothing >/dev/null 2>&1; then
     bin=assume-nothing
   else

@@ -176,7 +176,7 @@ func Prune(maxAge time.Duration) {
 	}
 	cutoff := time.Now().Add(-maxAge)
 	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") {
+		if e.IsDir() || !(strings.HasSuffix(e.Name(), ".json") || strings.HasPrefix(e.Name(), ".tmp-")) {
 			continue
 		}
 		if info, err := e.Info(); err == nil && info.ModTime().Before(cutoff) {

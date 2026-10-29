@@ -144,17 +144,68 @@ func isNoise(l string) bool {
 
 func lookPath(names ...string) (string, string, bool) {
 	for _, n := range names {
-		if p, err := exec.LookPath(n); err == nil {
+		if p, err := exec.LookPath(n); err == nil && !Placeholder(p) {
 			return n, p, true
 		}
 	}
 	return "", "", false
 }
 
+// macOS ships stand-ins in /usr/bin that only open an installer dialog when the
+// Xcode Command Line Tools (or a JDK) are missing. They must never be run or
+// reported as installed.
+var macStubs = map[string]bool{"git": true, "python3": true, "pip3": true, "swift": true, "swiftc": true, "make": true, "clang": true, "gcc": true, "cc": true, "c++": true, "g++": true}
+
+var (
+	cltOnce, jdkOnce sync.Once
+	cltOK, jdkOK     bool
+)
+
+func quietOK(name string, args ...string) bool {
+	ctx, cancel := context.WithTimeout(context.Background(), cmdTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.WaitDelay = 200 * time.Millisecond
+	return cmd.Run() == nil
+}
+
+// Placeholder reports whether path is a macOS stand-in for a tool that is not installed.
+func Placeholder(path string) bool {
+	if runtime.GOOS != "darwin" || filepath.Dir(path) != "/usr/bin" {
+		return false
+	}
+	base := filepath.Base(path)
+	switch {
+	case base == "java" || base == "javac":
+		jdkOnce.Do(func() { jdkOK = quietOK("/usr/libexec/java_home") })
+		return !jdkOK
+	case macStubs[base]:
+		cltOnce.Do(func() { cltOK = quietOK("/usr/bin/xcode-select", "-p") })
+		return !cltOK
+	}
+	return false
+}
+
+const placeholderWhy = "macOS placeholder only (running it opens an installer); the real tool is not installed"
+
+// safe runs fn and turns a panic into a message on stderr, so a bug in one
+// check can never crash the hook (a crash would block the agent's tool call).
+func safe(fn func()) {
+	defer func() {
+		if r := recover(); r != nil {
+			fmt.Fprintln(os.Stderr, "assume-nothing: probe error:", r)
+		}
+	}()
+	fn()
+}
+
 // Command checks one command name on PATH.
 func Command(name string) store.Fact {
 	key := "cmd." + name
 	if p, err := exec.LookPath(name); err == nil {
+		if Placeholder(p) {
+			return store.Fact{Key: key, Status: store.Missing, How: "PATH lookup", Why: placeholderWhy}
+		}
 		return store.Fact{Key: key, Status: store.OK, Value: p, How: "PATH lookup"}
 	}
 	return store.Fact{Key: key, Status: store.Missing, How: "PATH lookup"}
@@ -180,7 +231,9 @@ func langFact(ctx context.Context, l Lang) store.Fact {
 func presence(prefix string, names []string) []store.Fact {
 	out := make([]store.Fact, 0, len(names))
 	for _, n := range names {
-		if _, err := exec.LookPath(n); err == nil {
+		if p, err := exec.LookPath(n); err == nil && Placeholder(p) {
+			out = append(out, store.Fact{Key: prefix + n, Status: store.Missing, How: "PATH lookup", Why: placeholderWhy})
+		} else if err == nil {
 			out = append(out, store.Fact{Key: prefix + n, Status: store.OK, How: "PATH lookup"})
 		} else {
 			out = append(out, store.Fact{Key: prefix + n, Status: store.Missing, How: "PATH lookup"})
@@ -223,14 +276,21 @@ func ToolFacts(ctx context.Context, extra []string) []store.Fact {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			f := langFact(ctx, l)
-			mu.Lock()
-			langs[i] = f
-			mu.Unlock()
+			safe(func() {
+				f := langFact(ctx, l)
+				mu.Lock()
+				langs[i] = f
+				mu.Unlock()
+			})
 		}()
 	}
 	wg.Wait()
-	out := append([]store.Fact{}, langs...)
+	var out []store.Fact
+	for _, f := range langs {
+		if f.Key != "" {
+			out = append(out, f)
+		}
+	}
 	out = append(out, presence("pm.", PackageManagers)...)
 	tools := append([]string{}, Tools...)
 	for _, t := range extra {
@@ -313,7 +373,7 @@ func TargetFacts(ctx context.Context, cwd string) []store.Fact {
 
 func gitFact(ctx context.Context, cwd string) store.Fact {
 	f := store.Fact{Key: "git", How: "git rev-parse / status / remote"}
-	if _, err := exec.LookPath("git"); err != nil {
+	if p, err := exec.LookPath("git"); err != nil || Placeholder(p) {
 		f.Status, f.Why = store.Unknown, "git is not installed"
 		return f
 	}
@@ -435,12 +495,11 @@ func Environment(cwd string) []store.Fact {
 	var sys, tgt, tools []store.Fact
 	var wg sync.WaitGroup
 	wg.Add(3)
-	go func() { defer wg.Done(); sys = SystemFacts(ctx, cwd) }()
-	go func() { defer wg.Done(); tgt = TargetFacts(ctx, cwd) }()
-	go func() { defer wg.Done(); tools = ToolFacts(ctx, cfg.Tools) }()
+	go func() { defer wg.Done(); safe(func() { sys = SystemFacts(ctx, cwd) }) }()
+	go func() { defer wg.Done(); safe(func() { tgt = TargetFacts(ctx, cwd) }) }()
+	go func() { defer wg.Done(); safe(func() { tools = ToolFacts(ctx, cfg.Tools) }) }()
 	wg.Wait()
-	out := append(sys, tgt...)
-	out = append(out, tools...)
+	out := append(append(append([]store.Fact{}, sys...), tgt...), tools...)
 	out = append(out, store.Fact{Key: "net", Status: store.Unknown, Why: "not checked at start (run the deep net probe)"})
 	return out
 }

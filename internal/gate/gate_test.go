@@ -43,11 +43,14 @@ func TestStopOnceThenTrust(t *testing.T) {
 func TestInstallAndSelfAreNeverBlocked(t *testing.T) {
 	old := Lookup
 	defer func() { Lookup = old }()
-	Lookup = fakeLookup()
+	Lookup = fakeLookup("brew")
 
 	st := store.New("s2", "/tmp/fictional-project")
 	if m := MissingCommands("brew install zorbtool && zorbtool -v", st); len(m) != 0 {
-		t.Fatalf("install line blocked: %v", m)
+		t.Fatalf("command after an install blocked: %v", m)
+	}
+	if m := MissingCommands("zorbtool -v && brew install zorbtool", st); len(m) != 1 {
+		t.Fatalf("command before an install should still be checked: %v", m)
 	}
 	if m := MissingCommands("assume-nothing deep tool zorbtool", st); len(m) != 0 {
 		t.Fatalf("self blocked: %v", m)
@@ -60,7 +63,7 @@ func TestForgetKeepsKnownGood(t *testing.T) {
 	st.Commands["zorbtool"] = "allowed"
 	st.Denied["zorbtool"] = 1
 	Forget(st)
-	if st.Commands["npm"] != store.OK || st.Commands["zorbtool"] != "" || len(st.Denied) != 0 {
+	if st.Commands["npm"] != store.OK || st.Commands["zorbtool"] != "allowed" || len(st.Denied) != 0 {
 		t.Fatalf("Forget did not reset properly: %v %v", st.Commands, st.Denied)
 	}
 }

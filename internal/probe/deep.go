@@ -37,6 +37,11 @@ func Net(ctx context.Context) []store.Fact {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			defer func() {
+				if r := recover(); r != nil {
+					res[i] = store.Fact{Key: "net." + host(u), Status: store.Unknown, Why: "internal error"}
+				}
+			}()
 			f := store.Fact{Key: "net." + host(u), How: "HTTP HEAD " + u}
 			req, err := http.NewRequestWithContext(ctx, http.MethodHead, u, nil)
 			if err == nil {
@@ -77,6 +82,9 @@ func Tool(ctx context.Context, name string) []store.Fact {
 	p, err := exec.LookPath(name)
 	if err != nil {
 		return []store.Fact{{Key: "tool." + name, Status: store.Missing, How: "PATH lookup"}}
+	}
+	if Placeholder(p) {
+		return []store.Fact{{Key: "tool." + name, Status: store.Missing, How: "PATH lookup", Why: placeholderWhy}}
 	}
 	out := []store.Fact{{Key: "tool." + name + ".path", Status: store.OK, Value: Clean(p, 200), How: "PATH lookup"}}
 	ver := store.Fact{Key: "tool." + name + ".version", Status: store.Unknown, Why: "no version flag answered"}

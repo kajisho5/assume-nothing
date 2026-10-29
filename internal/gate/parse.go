@@ -96,6 +96,15 @@ func segments(s string) [][]string {
 			cur.WriteString(string(rs[i+1 : min(j, len(rs))]))
 			inWord = true
 			i = j
+		case c == '(' && inWord && strings.HasSuffix(cur.String(), "=") && assign.MatchString(cur.String()):
+			// array assignment: name=(a b c) is data, not commands
+			i = skipParens(rs, i)
+			cur.WriteString("()")
+		case c == '$' && i+2 < len(rs) && rs[i+1] == '(' && rs[i+2] == '(':
+			// arithmetic $(( ... )) is not a command
+			i = skipParens(rs, i+1)
+			cur.WriteString("0")
+			inWord = true
 		case c == '#' && !inWord:
 			for i < len(rs) && rs[i] != '\n' {
 				i++
@@ -136,7 +145,11 @@ func segments(s string) [][]string {
 			}
 			i = k - 1
 		case c == '<' || c == '>':
-			// redirection: drop the operator and its target word
+			// redirection: drop the operator, its target word, and a file descriptor number before it (3>&1)
+			if inWord && isDigits(cur.String()) {
+				cur.Reset()
+				inWord = false
+			}
 			flushWord()
 			j := i + 1
 			for j < len(rs) && (rs[j] == '>' || rs[j] == '&' || rs[j] == '<') {
@@ -158,6 +171,27 @@ func segments(s string) [][]string {
 	}
 	flushSeg()
 	return segs
+}
+
+// skipParens returns the index of the parenthesis that closes the one at start.
+func skipParens(rs []rune, start int) int {
+	depth := 0
+	for i := start; i < len(rs); i++ {
+		switch rs[i] {
+		case '(':
+			depth++
+		case ')':
+			depth--
+			if depth == 0 {
+				return i
+			}
+		case '\'', '"':
+			q := rs[i]
+			for i++; i < len(rs) && rs[i] != q; i++ {
+			}
+		}
+	}
+	return len(rs) - 1
 }
 
 // skipHeredocs returns the index just after the bodies of the pending here-documents.
@@ -187,23 +221,52 @@ func skipHeredocs(rs []rune, start int, delims []string) int {
 	return i
 }
 
-// CommandNames returns the bare command names a shell command line would run,
-// in order and without duplicates. Paths, variables and builtins are left out.
-func CommandNames(line string) []string {
-	var out []string
-	seen := map[string]bool{}
+// Cmd is one simple command found in a line: its name and the words after it.
+type Cmd struct {
+	Name string
+	Args []string
+}
+
+// Commands returns the simple commands of a shell line, in order. Paths,
+// variables, builtins, numbers and functions defined in the same line are left out.
+func Commands(line string) []Cmd {
+	defined := map[string]bool{}
+	for _, m := range funcDef.FindAllStringSubmatch(line, -1) {
+		for _, g := range m[1:] {
+			if g != "" {
+				defined[g] = true
+			}
+		}
+	}
+	var out []Cmd
 	for _, words := range segments(line) {
-		name := firstCommand(words)
-		if name == "" || seen[name] {
+		name, idx := firstCommand(words)
+		if name == "" || defined[name] {
 			continue
 		}
-		seen[name] = true
-		out = append(out, name)
+		out = append(out, Cmd{Name: name, Args: words[idx+1:]})
 	}
 	return out
 }
 
-func firstCommand(words []string) string {
+var funcDef = regexp.MustCompile(`(?:^|[;&|{(\s])([A-Za-z_][A-Za-z0-9_.-]*)\s*\(\s*\)|\bfunction\s+([A-Za-z_][A-Za-z0-9_.-]*)`)
+
+// CommandNames returns the bare command names a shell line would run, in order,
+// without duplicates.
+func CommandNames(line string) []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, c := range Commands(line) {
+		if seen[c.Name] {
+			continue
+		}
+		seen[c.Name] = true
+		out = append(out, c.Name)
+	}
+	return out
+}
+
+func firstCommand(words []string) (string, int) {
 	for i := 0; i < len(words); i++ {
 		w := words[i]
 		switch {
@@ -211,8 +274,22 @@ func firstCommand(words []string) string {
 			continue
 		case leading[w]:
 			continue
+		case w == "function":
+			// "function name {" : the body starts after the brace
+			j := i + 1
+			for j < len(words) && words[j] != "{" {
+				j++
+			}
+			if j >= len(words) {
+				return "", 0
+			}
+			i = j
+			continue
 		case skipSegment[w]:
-			return ""
+			return "", 0
+		case w == "command" && i+1 < len(words) && (words[i+1] == "-v" || words[i+1] == "-V"):
+			// "command -v x" checks whether x exists; it does not run it
+			return "", 0
 		case wrappers[w]:
 			// skip the wrapper's options and assignments, then take the next word
 			for i+1 < len(words) {
@@ -233,12 +310,24 @@ func firstCommand(words []string) string {
 			}
 			continue
 		}
-		if builtins[w] || !bareName.MatchString(w) {
-			return ""
+		if builtins[w] || !bareName.MatchString(w) || isDigits(w) {
+			return "", 0
 		}
-		return w
+		return w, i
 	}
-	return ""
+	return "", 0
+}
+
+func isDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func isNumber(s string) bool {
@@ -253,9 +342,47 @@ func isNumber(s string) bool {
 	return true
 }
 
-var installPattern = regexp.MustCompile(`(?i)\b(pip3?|uv|pipx|npm|pnpm|yarn|bun|cargo|go|gem|brew|apt|apt-get|dnf|yum|pacman|apk|winget|choco|scoop|port|nix-env|mise|asdf|conda|mamba)\b[^;&|\n]*\b(install|add|i|get|tool install|sync)\b`)
+var packageManagers = map[string]bool{
+	"pip": true, "pip3": true, "uv": true, "pipx": true, "poetry": true, "npm": true, "pnpm": true, "yarn": true,
+	"bun": true, "deno": true, "cargo": true, "go": true, "gem": true, "brew": true, "apt": true, "apt-get": true,
+	"dnf": true, "yum": true, "pacman": true, "apk": true, "winget": true, "choco": true, "scoop": true, "port": true,
+	"nix-env": true, "mise": true, "asdf": true, "conda": true, "mamba": true,
+}
 
-// InstallsSomething reports whether the command line looks like it installs software.
+var installVerbs = map[string]bool{"install": true, "add": true, "i": true, "get": true, "sync": true}
+
+// IsInstall reports whether one command installs software: a package manager
+// whose first or second sub-command is an install verb (npm i, uv pip install,
+// brew install), or pacman -S.
+func IsInstall(c Cmd) bool {
+	if !packageManagers[c.Name] {
+		return false
+	}
+	seen := 0
+	for _, a := range c.Args {
+		if c.Name == "pacman" && strings.HasPrefix(a, "-S") {
+			return true
+		}
+		if strings.HasPrefix(a, "-") {
+			continue
+		}
+		if installVerbs[a] {
+			return true
+		}
+		seen++
+		if seen == 2 {
+			break
+		}
+	}
+	return false
+}
+
+// InstallsSomething reports whether any command in the line installs software.
 func InstallsSomething(line string) bool {
-	return installPattern.MatchString(line)
+	for _, c := range Commands(line) {
+		if IsInstall(c) {
+			return true
+		}
+	}
+	return false
 }
