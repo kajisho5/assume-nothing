@@ -1,0 +1,27 @@
+{
+  "description": "assume-nothing: probe the environment first, block tools until it is done, block commands that are not installed.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/run.sh hook session-start", "timeout": 15 }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "hooks": [
+          { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/run.sh hook pre-tool-use", "timeout": 15 }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/run.sh hook post-tool-use", "timeout": 15 }
+        ]
+      }
+    ]
+  }
+}
