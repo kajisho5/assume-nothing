@@ -36,6 +36,7 @@ Usage:
   assume-nothing install-repo --remove [DIR]                         take them out again
   assume-nothing install-cursor [--remove]                          add the hooks to ~/.cursor/hooks.json (all projects)
   assume-nothing install-opencode [--remove]                        add the plugin to ~/.config/opencode/plugins/
+  assume-nothing install-text-check [--user] [--remove] [DIR]        optional: a small model flags facts stated without a source
   assume-nothing status [SESSION]                                   what it did in a session (default: the latest)
   assume-nothing version
 `
@@ -55,6 +56,8 @@ func main() {
 		os.Exit(runDeep(os.Args[2:]))
 	case "install-repo":
 		os.Exit(runInstallRepo(os.Args[2:]))
+	case "install-text-check":
+		os.Exit(runTextCheck(os.Args[2:]))
 	case "install-cursor", "install-opencode":
 		os.Exit(runInstallAgent(os.Args[1], os.Args[2:]))
 	case "status":
@@ -138,6 +141,40 @@ func runInstallAgent(which string, args []string) int {
 		fmt.Println("assume-nothing: removed from", path)
 	} else {
 		fmt.Printf("assume-nothing v%s set up: %s\nStart a new session to use it.\n", version, path)
+	}
+	return 0
+}
+
+func runTextCheck(args []string) int {
+	fs := flag.NewFlagSet("install-text-check", flag.ContinueOnError)
+	remove := fs.Bool("remove", false, "take it out again")
+	user := fs.Bool("user", false, "add it to ~/.claude/settings.json (every project) instead of this project")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	var path string
+	if *user {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "assume-nothing:", err)
+			return 1
+		}
+		path = filepath.Join(home, ".claude", "settings.json")
+	} else {
+		dir := "."
+		if fs.NArg() > 0 {
+			dir = fs.Arg(0)
+		}
+		path = filepath.Join(dir, ".claude", "settings.json")
+	}
+	if err := install.TextCheck(path, *remove); err != nil {
+		fmt.Fprintln(os.Stderr, "assume-nothing:", err)
+		return 1
+	}
+	if *remove {
+		fmt.Println("assume-nothing: text check removed from", path)
+	} else {
+		fmt.Println("assume-nothing: text check added to", path, "(a small model reads each final answer; this costs a little per answer)")
 	}
 	return 0
 }

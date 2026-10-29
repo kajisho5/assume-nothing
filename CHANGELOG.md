@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.11.0] - 2026-10-30
+
+- Project first. The notes and the send-back now say to look in the project's own files (vendored copies, docs, CHANGELOG, lock files, config) before the official source. In a 10-run benchmark, v0.10 pushed Claude Haiku toward public registries on a "latest version" question; they returned 404 and it gave up (1/10 right, 7/10 without the plugin).
+- For a question about something that changes, a lookup that was tried counts even when it came back empty, and reading a project file about the thing counts too. An honest "I checked npm, it returned 404" next to the name passes.
+- Optional text check (`assume-nothing install-text-check [--user]`): a Claude Code prompt hook where a small model reads each final answer and flags versions, prices, defaults, flags and API names stated as certain with no source. Off unless installed, because it costs a model call per answer. In a live run it caught "the latest Node.js LTS is 24" (the official page listed 26), and the agent corrected itself.
+
 ## [0.10.0] - 2026-10-30
 
 - Cursor support (experimental): `scripts/setup.sh cursor` adds the hooks to `~/.cursor/hooks.json` for every project, in Cursor's own format (`additional_context`, `permission`, `followup_message`). The answer check reads the reply from `afterAgentResponse`, since Cursor's `stop` does not carry it. When Cursor runs hooks written for Claude Code (from `.claude/settings.json`), the binary answers in Cursor's format too.

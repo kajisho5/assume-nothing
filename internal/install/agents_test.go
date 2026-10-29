@@ -65,3 +65,20 @@ func TestOpenCodeInstall(t *testing.T) {
 		t.Error("plugin not removed")
 	}
 }
+
+func TestTextCheckInstall(t *testing.T) {
+	p := filepath.Join(t.TempDir(), ".claude", "settings.json")
+	os.MkdirAll(filepath.Dir(p), 0o755)
+	os.WriteFile(p, []byte(`{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"./notify.sh"}]}]}}`), 0o644)
+	TextCheck(p, false)
+	TextCheck(p, false)
+	b, _ := os.ReadFile(p)
+	if strings.Count(string(b), textCheckMarker) != 2 || !strings.Contains(string(b), "notify.sh") { // marker appears twice in one prompt
+		t.Fatalf("install: %s", b)
+	}
+	TextCheck(p, true)
+	b, _ = os.ReadFile(p)
+	if strings.Contains(string(b), textCheckMarker) || !strings.Contains(string(b), "notify.sh") {
+		t.Fatalf("remove: %s", b)
+	}
+}

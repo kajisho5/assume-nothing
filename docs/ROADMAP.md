@@ -56,8 +56,8 @@ and the machine has 1.24, so a build silently downloaded a toolchain.
 
 ## Later
 
-- Optional text check on top of the behavior check: a small model flags
-  concrete claims (versions, prices, defaults) stated as certain.
+- [x] Optional text check on top of the behavior check: a small model flags
+  concrete claims (versions, prices, defaults) stated as certain (v0.11).
 - [x] Cursor and OpenCode adapters (v0.10, experimental; OpenCode without the answer check).
 - [x] Hooks never block on Windows without Git Bash (`onFailure: continue`, v0.10).
 - Live runs in Codex CLI and Gemini CLI (needs accounts for those tools).
