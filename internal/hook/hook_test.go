@@ -208,3 +208,35 @@ func TestBadInputIsAnError(t *testing.T) {
 		t.Fatal("expected an error for unknown event")
 	}
 }
+
+func TestGeminiShapes(t *testing.T) {
+	setup(t)
+	dir := project(t)
+	old := gate.Lookup
+	defer func() { gate.Lookup = old }()
+	gate.Lookup = func(name string) store.Fact { return store.Fact{Key: "cmd." + name, Status: store.Missing} }
+
+	start := event(t, "SessionStart", map[string]any{"session_id": "g1", "cwd": dir, "source": "startup"})
+	b, _ := Encode(start, Gemini)
+	if !strings.Contains(string(b), `"additionalContext"`) || !strings.Contains(string(b), `"hookEventName":"SessionStart"`) {
+		t.Fatalf("gemini session start: %s", b)
+	}
+	deny := event(t, "BeforeTool", map[string]any{"session_id": "g1", "cwd": dir, "tool_name": "run_shell_command", "tool_input": map[string]any{"command": "zz-fictional --go", "dir_path": "."}})
+	b, _ = Encode(deny, Gemini)
+	var m map[string]any
+	if err := json.Unmarshal(b, &m); err != nil || m["decision"] != "deny" || !strings.Contains(m["reason"].(string), "zz-fictional") {
+		t.Fatalf("gemini deny: %s", b)
+	}
+	if _, ok := m["hookSpecificOutput"]; ok {
+		t.Fatalf("gemini deny must use the top-level decision only: %s", b)
+	}
+	// a BeforeTool answer that only carries context is dropped (Gemini has no field for it)
+	ctxOnly := &Output{&Specific{HookEventName: "PreToolUse", AdditionalContext: "x"}}
+	if b, _ := Encode(ctxOnly, Gemini); b != nil {
+		t.Fatalf("expected nothing, got %s", b)
+	}
+	// Codex gets the Claude shape unchanged
+	if b, _ := Encode(deny, Codex); !strings.Contains(string(b), `"permissionDecision":"deny"`) {
+		t.Fatalf("codex deny: %s", b)
+	}
+}

@@ -2,7 +2,7 @@
 
 **Your agent promised not to assume. Now it can't.**
 
-A plugin for Claude Code that makes the agent look before it leaps:
+A plugin for Claude Code (and Codex CLI and Gemini CLI) that makes the agent look before it leaps:
 
 1. **Probe first.** When a session starts, it checks the machine and the working folder and hands the agent a short list of facts: what is confirmed, what is not installed, and what is unknown.
 2. **No probe, no tools.** Until that probe exists, every tool call is stopped. The stop message carries the probe, so the agent reads it and goes on.
@@ -51,14 +51,29 @@ It stays under 2,500 characters. Details are fetched only when needed.
 
 ## Install
 
-In Claude Code:
+**Claude Code**
 
 ```text
 /plugin marketplace add kajisho5/assume-nothing
 /plugin install assume-nothing@assume-nothing
 ```
 
-Then start a new session.
+**Codex CLI** (experimental)
+
+```sh
+codex plugin marketplace add kajisho5/assume-nothing@dist
+codex plugin add assume-nothing@assume-nothing
+```
+
+Codex asks you to review and trust plugin hooks before they run.
+
+**Gemini CLI** (experimental)
+
+```sh
+gemini extensions install https://github.com/kajisho5/assume-nothing --ref gemini
+```
+
+Then start a new session. Codex and Gemini support is new: the packages install and validate with each tool, and the hook answers follow each tool's documented format, but they have not yet been run through a live session.
 
 ## How it works
 
@@ -99,13 +114,13 @@ Add tools your project depends on to `.assume-nothing.json` in the project folde
 
 ## Requirements
 
-- Claude Code with plugin support
+- Claude Code with plugin support, Codex CLI with hooks, or Gemini CLI with hooks
 - macOS or Linux (amd64 / arm64), or Windows with Git Bash (amd64 / arm64)
 - No runtime needed. It is a single Go binary. (A tool that checks whether Python is installed should not need Python.)
 
 ## Roadmap
 
-- [ ] Codex CLI and Gemini CLI (both have equivalent hooks)
+- [x] Codex CLI and Gemini CLI (experimental, v0.2)
 - [ ] A published A/B benchmark: same tasks, with and without the probe
 - [ ] Windows without Git Bash (PowerShell entry point)
 

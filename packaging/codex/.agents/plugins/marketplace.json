@@ -1,0 +1,12 @@
+{
+  "name": "assume-nothing",
+  "interface": { "displayName": "Assume Nothing" },
+  "plugins": [
+    {
+      "name": "assume-nothing",
+      "source": { "source": "local", "path": "./" },
+      "policy": { "installation": "AVAILABLE", "authentication": "ON_INSTALL" },
+      "category": "Developer Tools"
+    }
+  ]
+}

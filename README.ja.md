@@ -2,7 +2,7 @@
 
 **AIは「思い込まない」と約束した。これでもう、思い込めない。**
 
-Claude Code 用のプラグインです。AIに「動く前に必ず見る」をさせます。
+Claude Code 用のプラグインです（Codex CLI・Gemini CLI にも試験対応）。AIに「動く前に必ず見る」をさせます。
 
 1. **最初に下調べ**：会話が始まると、パソコンと作業フォルダを調べて、「確認済み」「入っていない」「不明」に分けた短い一覧をAIに渡します。
 2. **下調べが無ければ道具は使えない**：下調べが済むまで、AIの道具の使用をすべて止めます。止めた理由と一緒に下調べの結果を返すので、AIはそれを読んで続けられます。
@@ -26,6 +26,21 @@ Claude Code で次の2行を実行し、新しい会話を始めます。
 /plugin marketplace add kajisho5/assume-nothing
 /plugin install assume-nothing@assume-nothing
 ```
+
+Codex CLI（試験対応）:
+
+```sh
+codex plugin marketplace add kajisho5/assume-nothing@dist
+codex plugin add assume-nothing@assume-nothing
+```
+
+Gemini CLI（試験対応）:
+
+```sh
+gemini extensions install https://github.com/kajisho5/assume-nothing --ref gemini
+```
+
+Codex と Gemini は、インストールと形式の検査までは確認済みです。実際の会話の中で動かす確認はまだです。
 
 ## しないこと
 

@@ -46,5 +46,11 @@ out=$(echo 'not json' | run pre-tool-use 2>/dev/null) || fail "bad input must ex
 out=$("$root/scripts/run.sh" deep tool git) || fail "deep tool exited non-zero"
 grep -q 'tool.git' <<<"$out" || fail "deep tool failed: $out"
 
+# 7. Gemini CLI shapes through the real entry point
+out=$(printf '{"session_id":"smoke-g","cwd":"%s","source":"startup"}' "$cwd_json" | "$root/scripts/run.sh" hook --agent gemini SessionStart) || fail "gemini start exited non-zero"
+grep -q '"additionalContext"' <<<"$out" || fail "gemini start lacks context: $out"
+out=$(printf '{"session_id":"smoke-g","cwd":"%s","tool_name":"run_shell_command","tool_input":{"command":"zz-fictional-tool --go"}}' "$cwd_json" | "$root/scripts/run.sh" hook --agent gemini BeforeTool) || fail "gemini gate exited non-zero"
+grep -q '"decision":"deny"' <<<"$out" || fail "gemini missing command not stopped: $out"
+
 echo "smoke OK ($os-$arch)"
 rm -rf "$work"

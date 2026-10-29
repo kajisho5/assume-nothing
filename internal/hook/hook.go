@@ -99,8 +99,12 @@ func SessionStart(in Input) *Output {
 	return &Output{&Specific{HookEventName: "SessionStart", AdditionalContext: render.Snapshot(st, DeepCommand)}}
 }
 
+// shellTools are the shell tool names of the supported agents:
+// Claude Code and Codex ("Bash"), Gemini CLI ("run_shell_command").
+var shellTools = map[string]bool{"Bash": true, "run_shell_command": true}
+
 func bashCommand(in Input) string {
-	if in.ToolName != "Bash" {
+	if !shellTools[in.ToolName] {
 		return ""
 	}
 	var ti struct {
@@ -268,10 +272,38 @@ func Run(event string, data []byte) (*Output, error) {
 	switch event {
 	case "session-start", "SessionStart":
 		return SessionStart(in), nil
-	case "pre-tool-use", "PreToolUse":
+	case "pre-tool-use", "PreToolUse", "BeforeTool":
 		return PreToolUse(in), nil
-	case "post-tool-use", "PostToolUse":
+	case "post-tool-use", "PostToolUse", "AfterTool":
 		return PostToolUse(in), nil
 	}
 	return nil, fmt.Errorf("unknown hook event %q", event)
+}
+
+// Agents this hook can answer.
+const (
+	Claude = "claude" // Claude Code
+	Codex  = "codex"  // Codex CLI: same input and output shape as Claude Code
+	Gemini = "gemini" // Gemini CLI: BeforeTool / AfterTool, top-level decision
+)
+
+// Encode turns an answer into the JSON the given agent expects. It returns nil
+// when there is nothing to say.
+func Encode(out *Output, agent string) ([]byte, error) {
+	if out == nil || out.HookSpecificOutput == nil {
+		return nil, nil
+	}
+	if agent != Gemini {
+		return json.Marshal(out)
+	}
+	s := out.HookSpecificOutput
+	if s.PermissionDecision == "deny" {
+		return json.Marshal(map[string]string{"decision": "deny", "reason": s.PermissionDecisionReason})
+	}
+	ev := map[string]string{"SessionStart": "SessionStart", "PostToolUse": "AfterTool"}[s.HookEventName]
+	if ev == "" || s.AdditionalContext == "" {
+		// Gemini's BeforeTool cannot add context; say nothing rather than guess.
+		return nil, nil
+	}
+	return json.Marshal(map[string]any{"hookSpecificOutput": map[string]string{"hookEventName": ev, "additionalContext": s.AdditionalContext}})
 }
