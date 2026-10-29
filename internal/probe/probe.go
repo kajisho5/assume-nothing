@@ -225,7 +225,7 @@ func langFact(ctx context.Context, l Lang) store.Fact {
 		}
 		return store.Fact{Key: l.Key, Status: store.Unknown, Value: name, How: how, Why: why}
 	}
-	return store.Fact{Key: l.Key, Status: store.OK, Value: v, How: how}
+	return store.Fact{Key: l.Key, Status: store.OK, Value: name + ": " + v, How: how}
 }
 
 func presence(prefix string, names []string) []store.Fact {
@@ -289,6 +289,21 @@ func ToolFacts(ctx context.Context, extra []string) []store.Fact {
 	for _, f := range langs {
 		if f.Key != "" {
 			out = append(out, f)
+		}
+	}
+	// When a runtime is found under one name but not another (python3 but no
+	// python), say so: agents often type the other name.
+	for _, l := range Langs {
+		if len(l.Names) < 2 {
+			continue
+		}
+		if _, _, found := lookPath(l.Names...); !found {
+			continue
+		}
+		for _, n := range l.Names {
+			if _, _, ok := lookPath(n); !ok {
+				out = append(out, store.Fact{Key: "cmd." + n, Status: store.Missing, How: "PATH lookup"})
+			}
 		}
 	}
 	out = append(out, presence("pm.", PackageManagers)...)
