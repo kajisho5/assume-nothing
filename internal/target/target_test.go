@@ -244,3 +244,19 @@ func TestMultilingual(t *testing.T) {
 		t.Error("hangul mention not found")
 	}
 }
+
+func TestEnglishNames(t *testing.T) {
+	for p, want := range map[string]string{
+		"Who is Lumen Varga?":                "Lumen Varga",
+		"tell me about Lumen Varga please":   "Lumen Varga",
+		"What is Nebula Forge Studio doing?": "Nebula Forge Studio",
+		"research zorvexmark":                "zorvexmark",
+		"what is the latest version":         "",
+		"I care about the build":             "",
+	} {
+		got := strings.Join(texts(Extract(p)), "|")
+		if got != want {
+			t.Errorf("Extract(%q) = %q, want %q", p, got, want)
+		}
+	}
+}
