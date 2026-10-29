@@ -433,8 +433,8 @@ func TestFreshHedgeStillSentBackOnce(t *testing.T) {
 		t.Fatal("sent back twice")
 	}
 	// Outside a time-sensitive question, the same hedge lets it through.
-	event(t, "user-prompt-submit", map[string]any{"session_id": "fh", "prompt": "Quillmarkについて教えて"})
-	if out := event(t, "stop", map[string]any{"session_id": "fh", "last_assistant_message": "Quillmark はエディタです（記憶に基づく回答で、検証はしていません）。"}); out != nil {
+	event(t, "user-prompt-submit", map[string]any{"session_id": "fh", "prompt": "Zorvexdocについて教えて"})
+	if out := event(t, "stop", map[string]any{"session_id": "fh", "last_assistant_message": "Zorvexdoc はエディタです（記憶に基づく回答で、検証はしていません）。"}); out != nil {
 		t.Fatalf("hedged answer sent back: %+v", out)
 	}
 }
@@ -501,3 +501,20 @@ func TestParallelFolderChangeNotedOnce(t *testing.T) {
 		t.Fatalf("folder change noted %d times, want 1", notes)
 	}
 }
+
+func TestScriptedFetchIsALookup(t *testing.T) {
+	for _, c := range []string{
+		`python3 -c "import urllib.request,json; print(json.load(urllib.request.urlopen('https://registry.example.com/zorvexmark'))['version'])"`,
+		`node -e "fetch('https://api.example.com/v1/x').then(r=>r.text()).then(console.log)"`,
+		`gh api repos/orbit-labs/quasar/releases/latest`,
+	} {
+		if !isLookup(Input{ToolName: "Bash", ToolInput: json.RawMessage(mustJSON(map[string]string{"command": c}))}) {
+			t.Errorf("not a lookup: %s", c)
+		}
+	}
+	if isLookup(Input{ToolName: "Bash", ToolInput: json.RawMessage(mustJSON(map[string]string{"command": "ls -la && cat README.md"}))}) {
+		t.Error("ls counted as a lookup")
+	}
+}
+
+func mustJSON(v any) []byte { b, _ := json.Marshal(v); return b }

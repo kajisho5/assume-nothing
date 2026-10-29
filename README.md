@@ -88,7 +88,22 @@ Same tasks, same model, with and without `assume-nothing`. Each task is a small 
 | Claude Sonnet | without | 12/12 | 0.8 | 3.1 | 14 |
 | Claude Sonnet | **with** | 12/12 | **0.0** | **2.8** | **11** |
 
+Re-run on 2026-10-30 (v0.8) with Claude Haiku, in a clean config with no other plugins: failed commands on a missing tool 0.8 per task without, 0.0 with; tool calls 3.9 and 3.3.
+
 Read it honestly: every run succeeded either way. What changes is how the agent gets there: with the probe it stops trying commands that are not there, so it makes fewer calls and finishes sooner, and the effect is larger on the smaller model. The sample is small and the tasks were built to contain traps, so do not expect the same numbers on everyday work. Per-task numbers, the raw results and the script are in [`evals/`](evals/); run `python3 evals/run.py --plugin-dir <plugin> --model haiku` to reproduce.
+
+### Lookup check
+
+Three questions about fictional tools whose answers are only in the project's own docs (a vendored README, a CHANGELOG, a docs page). The prompt does not say where to look. 3 runs per question and condition, 2026-10-30.
+
+| Model | Plugin | Right | Wrong fact | No answer | Sent back |
+| --- | --- | --- | --- | --- | --- |
+| Claude Haiku | without | 8/9 | 0 | 1 | 0 |
+| Claude Haiku | **with** | 8/9 | 0 | 1 | 3 |
+| Claude Sonnet | without | 7/9 | 0 | 2 | 0 |
+| Claude Sonnet | **with** | **9/9** | 0 | 0 | 3 |
+
+Read it honestly: with tools at hand, neither model stated a wrong fact in these runs; they looked in the project or said they did not know. The difference is on the hardest question, "what is the latest version of zorvexmark?": the registries return 404, and without the plugin the agent often stopped there (3 of 6 right). With it, the answer was sent back once, the agent looked further, found the vendored CHANGELOG, and got it right (6 of 6). The cost was more tool calls and time on that question. In one Haiku run with the plugin, the agent saw that the tool was not installed and asked for its help output instead of reading the docs page. The sample is small.
 
 ## Install
 
@@ -174,6 +189,7 @@ Add tools your project depends on to `.assume-nothing.json` in the project folde
 | --- | --- |
 | `ASSUME_NOTHING_STRICT=1` | Keep blocking when the probe record cannot be saved |
 | `ASSUME_NOTHING_TARGETS=0` | Turn off the lookup check (the environment probe still runs) |
+| `ASSUME_NOTHING=off` | Turn every hook off for this session |
 | `ASSUME_NOTHING_DATA=<dir>` | Where probe records are kept (default: the plugin's data folder) |
 
 ## Requirements

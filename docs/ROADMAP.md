@@ -46,13 +46,13 @@ and the machine has 1.24, so a build silently downloaded a toolchain.
 - [x] `assume-nothing status`: what this session probed, which names were
       looked up, what was sent back.
 
-## v0.8: prove it
+## v0.8: prove it (done)
 
-- [ ] A benchmark for the lookup check: questions about fictional libraries
+- [x] A benchmark for the lookup check: questions about fictional libraries
       whose answers are in local docs. Measure wrong facts with and without.
-- [ ] The environment benchmark can no longer escape its restricted PATH
+- [x] The environment benchmark can no longer escape its restricted PATH
       (isolated HOME and npm prefix).
-- [ ] Results in the README.
+- [x] Results in the README.
 
 ## Later
 

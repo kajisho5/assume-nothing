@@ -143,6 +143,9 @@ func runHook(args []string) (code int) {
 			code = 0
 		}
 	}()
+	if !hookEnabled() {
+		return 0
+	}
 	agent := hook.Claude
 	var rest []string
 	for i := 0; i < len(args); i++ {
@@ -180,6 +183,27 @@ func runHook(args []string) (code int) {
 		os.Stdout.Write(append(b, '\n'))
 	}
 	return 0
+}
+
+// hookEnabled reports whether this copy should answer hooks.
+// ASSUME_NOTHING=off turns every hook off. ASSUME_NOTHING_ONLY_ROOT=<dir>
+// makes only the copy installed under dir answer; the benchmark uses it so a
+// copy synced from an account does not run alongside the one being tested.
+func hookEnabled() bool {
+	switch strings.ToLower(os.Getenv("ASSUME_NOTHING")) {
+	case "off", "0", "false", "no":
+		return false
+	}
+	if only := os.Getenv("ASSUME_NOTHING_ONLY_ROOT"); only != "" {
+		root := os.Getenv("CLAUDE_PLUGIN_ROOT")
+		if root == "" {
+			root, _ = os.Executable()
+		}
+		a, _ := filepath.Abs(root)
+		b, _ := filepath.Abs(only)
+		return strings.HasPrefix(filepath.Clean(a)+string(filepath.Separator), filepath.Clean(b)+string(filepath.Separator))
+	}
+	return true
 }
 
 func runProbe(args []string) int {

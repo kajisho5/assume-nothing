@@ -261,7 +261,7 @@ var writeTools = map[string]bool{
 var webTools = map[string]bool{"WebFetch": true, "WebSearch": true, "web_fetch": true, "google_web_search": true}
 
 // netCommand matches a shell command that reaches the network to look something up.
-var netCommand = regexp.MustCompile(`(?:^|[\s;&|(])(?:curl|wget|gh|http|xh|git\s+(?:ls-remote|fetch|clone)|npm\s+(?:view|info|show|search)|pnpm\s+view|yarn\s+info|pip3?\s+(?:index|download)|uv\s+pip\s+index|cargo\s+(?:search|info)|go\s+list\s+-m|brew\s+info)\b`)
+var netCommand = regexp.MustCompile(`https?://|(?:^|[\s;&|(])(?:curl|wget|gh|http|xh|git\s+(?:ls-remote|fetch|clone)|npm\s+(?:view|info|show|search)|pnpm\s+view|yarn\s+info|pip3?\s+(?:index|download)|uv\s+pip\s+index|cargo\s+(?:search|info)|go\s+list\s+-m|brew\s+info)\b`)
 
 // isLookup reports whether a tool call looks something up outside the
 // machine: the web, an MCP server, or a network command.
