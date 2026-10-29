@@ -27,7 +27,8 @@ const usage = `assume-nothing — make your coding agent probe before it acts.
 
 Usage:
   assume-nothing hook [--agent claude|codex|gemini] <event>          (reads the agent's JSON on stdin)
-        events: session-start, pre-tool-use, post-tool-use (also SessionStart, PreToolUse, BeforeTool, ...)
+        events: session-start, user-prompt-submit, pre-tool-use, post-tool-use, stop
+              (also SessionStart, UserPromptSubmit, PreToolUse, BeforeAgent, BeforeTool, AfterAgent, ...)
   assume-nothing probe [--json] [--cwd DIR]                         print the session probe
   assume-nothing deep net [--json]                                  check outbound network access
   assume-nothing deep tool <name> [--json]                          check one tool in depth
@@ -92,7 +93,7 @@ func runInstallRepo(args []string) int {
 		fmt.Fprintln(os.Stderr, "assume-nothing:", err)
 		return 1
 	}
-	fmt.Printf("assume-nothing v%s set up in %s\n  %s\n  .claude/settings.json (3 hooks)\nCommit both, and every Claude Code session on this repository probes first, cloud sessions included.\n", version, dir, install.Launcher)
+	fmt.Printf("assume-nothing v%s set up in %s\n  %s\n  .claude/settings.json (5 hooks)\nCommit both, and every Claude Code session on this repository probes first, cloud sessions included.\n", version, dir, install.Launcher)
 	return 0
 }
 
@@ -158,7 +159,7 @@ func runHook(args []string) (code int) {
 		fmt.Fprintln(os.Stderr, "assume-nothing:", err)
 		return 0
 	}
-	b, err := hook.Encode(out, agent)
+	b, err := hook.Encode(out, hook.DetectAgent(data, agent))
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "assume-nothing:", err)
 		return 0

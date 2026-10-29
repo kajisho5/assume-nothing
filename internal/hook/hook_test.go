@@ -231,12 +231,135 @@ func TestGeminiShapes(t *testing.T) {
 		t.Fatalf("gemini deny must use the top-level decision only: %s", b)
 	}
 	// a BeforeTool answer that only carries context is dropped (Gemini has no field for it)
-	ctxOnly := &Output{&Specific{HookEventName: "PreToolUse", AdditionalContext: "x"}}
+	ctxOnly := &Output{HookSpecificOutput: &Specific{HookEventName: "PreToolUse", AdditionalContext: "x"}}
 	if b, _ := Encode(ctxOnly, Gemini); b != nil {
 		t.Fatalf("expected nothing, got %s", b)
 	}
 	// Codex gets the Claude shape unchanged
 	if b, _ := Encode(deny, Codex); !strings.Contains(string(b), `"permissionDecision":"deny"`) {
 		t.Fatalf("codex deny: %s", b)
+	}
+}
+
+func TestTargetLookupFlow(t *testing.T) {
+	setup(t)
+	dir := project(t)
+	event(t, "session-start", map[string]any{"session_id": "tg", "cwd": dir})
+
+	// The request names a target: the agent is told it is UNKNOWN.
+	out := event(t, "user-prompt-submit", map[string]any{"session_id": "tg", "cwd": dir, "prompt": "lumen-kitについて調べて"})
+	if out == nil || !strings.Contains(out.HookSpecificOutput.AdditionalContext, "lumen-kit") {
+		t.Fatalf("no target note: %+v", out)
+	}
+	// Answering about it without any lookup is sent back once.
+	stop := map[string]any{"session_id": "tg", "cwd": dir, "last_assistant_message": "lumen-kit is a UI library with 40 components."}
+	out = event(t, "stop", stop)
+	if out == nil || out.Decision != "block" || !strings.Contains(out.Reason, "lumen-kit") {
+		t.Fatalf("expected a block: %+v", out)
+	}
+	b, _ := Encode(out, Claude)
+	if !strings.Contains(string(b), `"hookEventName":"Stop"`) || !strings.Contains(string(b), `"additionalContext"`) {
+		t.Fatalf("claude shape: %s", b)
+	}
+	if c, _ := Encode(out, Codex); !strings.Contains(string(c), `"decision":"block"`) {
+		t.Fatalf("codex shape: %s", c)
+	}
+	g, _ := Encode(out, Gemini)
+	if !strings.Contains(string(g), `"decision":"deny"`) {
+		t.Fatalf("gemini shape: %s", g)
+	}
+	// Once only, even if the agent still did not look it up.
+	if out := event(t, "stop", stop); out != nil {
+		t.Fatalf("blocked twice: %+v", out)
+	}
+	stop["stop_hook_active"] = true
+	if out := event(t, "stop", stop); out != nil {
+		t.Fatalf("blocked while stop_hook_active: %+v", out)
+	}
+}
+
+func TestTargetLookedUpPasses(t *testing.T) {
+	setup(t)
+	dir := project(t)
+	event(t, "session-start", map[string]any{"session_id": "tl", "cwd": dir})
+	event(t, "user-prompt-submit", map[string]any{"session_id": "tl", "cwd": dir, "prompt": "orbit-labs/quasar-cli の使い方は？"})
+	// A write that mentions it does not count as a lookup.
+	event(t, "post-tool-use", map[string]any{"session_id": "tl", "cwd": dir, "tool_name": "Write",
+		"tool_input": map[string]any{"file_path": "/tmp/quasar-cli.md", "content": "orbit-labs/quasar-cli"}})
+	stop := map[string]any{"session_id": "tl", "cwd": dir, "last_assistant_message": "orbit-labs/quasar-cli has a build command."}
+	// A fetch of its page does.
+	event(t, "post-tool-use", map[string]any{"session_id": "tl", "cwd": dir, "tool_name": "WebFetch",
+		"tool_input": map[string]any{"url": "https://github.com/orbit-labs/quasar-cli"}, "tool_response": "README"})
+	if out := event(t, "stop", stop); out != nil {
+		t.Fatalf("blocked after a lookup: %+v", out)
+	}
+	// An answer that already says it is not verified is not sent back.
+	event(t, "user-prompt-submit", map[string]any{"session_id": "tl", "prompt": "zentrova-cliとは"})
+	if out := event(t, "stop", map[string]any{"session_id": "tl", "last_assistant_message": "zentrova-cli については確かな情報がありません。未確認です。"}); out != nil {
+		t.Fatalf("blocked a hedged answer: %+v", out)
+	}
+	// A long answer to the latest request is about it even without the name.
+	event(t, "user-prompt-submit", map[string]any{"session_id": "tl", "prompt": "nebula-dockの使い方"})
+	event(t, "user-prompt-submit", map[string]any{"session_id": "tl", "prompt": "nebula-dockの使い方、詳しく"})
+	long := strings.Repeat("Run the build command, then open the dashboard and pick a profile. ", 3)
+	if out := event(t, "stop", map[string]any{"session_id": "tl", "last_assistant_message": long}); out == nil || out.Decision != "block" {
+		t.Fatalf("long unlooked answer not sent back: %+v", out)
+	}
+	// A later request that names nothing is not checked against it.
+	event(t, "user-prompt-submit", map[string]any{"session_id": "tl", "prompt": "thanks, now tidy up"})
+	if out := event(t, "stop", map[string]any{"session_id": "tl", "last_assistant_message": long}); out != nil {
+		t.Fatalf("checked against an older request: %+v", out)
+	}
+	// An answer that does not mention it is never stopped.
+	event(t, "user-prompt-submit", map[string]any{"session_id": "tl", "cwd": dir, "prompt": "and nebula-port?"})
+	if out := event(t, "stop", map[string]any{"session_id": "tl", "last_assistant_message": "I don't know."}); out != nil {
+		t.Fatalf("blocked an answer that does not mention the target: %+v", out)
+	}
+}
+
+func TestPromptSubmitProbesWhenSessionStartWasMissed(t *testing.T) {
+	setup(t)
+	dir := project(t)
+	out := event(t, "user-prompt-submit", map[string]any{"session_id": "late", "cwd": dir, "prompt": "hello"})
+	if out == nil || !strings.Contains(out.HookSpecificOutput.AdditionalContext, "CONFIRMED") {
+		t.Fatalf("no probe on first prompt: %+v", out)
+	}
+	// The first tool call then goes through instead of being stopped.
+	if out := event(t, "pre-tool-use", map[string]any{"session_id": "late", "cwd": dir, "tool_name": "Read", "tool_input": map[string]any{"file_path": "x"}}); out != nil && out.HookSpecificOutput.PermissionDecision == "deny" {
+		t.Fatalf("first tool still denied: %+v", out)
+	}
+	g, _ := Encode(event(t, "user-prompt-submit", map[string]any{"session_id": "late2", "cwd": dir, "prompt": "hi"}), Gemini)
+	if !strings.Contains(string(g), `"BeforeAgent"`) {
+		t.Fatalf("gemini BeforeAgent shape: %s", g)
+	}
+}
+
+func TestTargetsOff(t *testing.T) {
+	setup(t)
+	t.Setenv("ASSUME_NOTHING_TARGETS", "0")
+	dir := project(t)
+	event(t, "session-start", map[string]any{"session_id": "off", "cwd": dir})
+	if out := event(t, "user-prompt-submit", map[string]any{"session_id": "off", "prompt": "lumen-kitについて"}); out != nil {
+		t.Fatalf("named targets while off: %+v", out)
+	}
+	if out := event(t, "stop", map[string]any{"session_id": "off", "last_assistant_message": "lumen-kit is great"}); out != nil {
+		t.Fatalf("stopped while off: %+v", out)
+	}
+}
+
+func TestDetectAgent(t *testing.T) {
+	t.Setenv("CLAUDE_PROJECT_DIR", "/work/nebula")
+	if a := DetectAgent([]byte(`{"session_id":"x"}`), Claude); a != Claude {
+		t.Errorf("claude seen as %s", a)
+	}
+	if a := DetectAgent([]byte(`{"turn_id":"t1"}`), Claude); a != Codex {
+		t.Errorf("codex input seen as %s", a)
+	}
+	if a := DetectAgent([]byte(`{}`), Gemini); a != Gemini {
+		t.Errorf("gemini changed to %s", a)
+	}
+	t.Setenv("CLAUDE_PROJECT_DIR", "")
+	if a := DetectAgent([]byte(`{}`), Claude); a != Codex {
+		t.Errorf("without CLAUDE_PROJECT_DIR expected the codex shape, got %s", a)
 	}
 }

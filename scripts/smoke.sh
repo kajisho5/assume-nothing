@@ -52,5 +52,20 @@ grep -q '"additionalContext"' <<<"$out" || fail "gemini start lacks context: $ou
 out=$(printf '{"session_id":"smoke-g","cwd":"%s","tool_name":"run_shell_command","tool_input":{"command":"zz-fictional-tool --go"}}' "$cwd_json" | "$root/scripts/run.sh" hook --agent gemini BeforeTool) || fail "gemini gate exited non-zero"
 grep -q '"decision":"deny"' <<<"$out" || fail "gemini missing command not stopped: $out"
 
+# 8. an answer about something nothing looked up is sent back once
+out=$(printf '{"session_id":"smoke-t","cwd":"%s","prompt":"tell me about lumen-kit"}' "$cwd_json" | run user-prompt-submit) || fail "prompt hook exited non-zero"
+grep -q 'lumen-kit' <<<"$out" || fail "target not named: $out"
+stop='{"session_id":"smoke-t","last_assistant_message":"lumen-kit has 40 components."}'
+out=$(echo "$stop" | run stop) || fail "stop hook exited non-zero"
+grep -q '"decision":"block"' <<<"$out" || fail "unlooked answer not sent back: $out"
+out=$(echo "$stop" | run stop) || fail "stop hook exited non-zero"
+[ -z "$out" ] || fail "sent back twice: $out"
+
+# 9. ...and passes once a tool looked it up
+printf '{"session_id":"smoke-u","cwd":"%s","prompt":"what is orbit-cli"}' "$cwd_json" | run user-prompt-submit >/dev/null
+echo '{"session_id":"smoke-u","tool_name":"WebFetch","tool_input":{"url":"https://example.com/orbit-cli"},"tool_response":"docs"}' | run post-tool-use >/dev/null
+out=$(echo '{"session_id":"smoke-u","last_assistant_message":"orbit-cli builds things."}' | run stop) || fail "stop hook exited non-zero"
+[ -z "$out" ] || fail "looked-up answer sent back: $out"
+
 echo "smoke OK ($os-$arch)"
 rm -rf "$work"

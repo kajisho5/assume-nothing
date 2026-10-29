@@ -77,7 +77,7 @@ func Remove(root string) error {
 
 func hookEntry(event string) map[string]any {
 	timeout := 30
-	if event == "session-start" {
+	if event == "session-start" || event == "user-prompt-submit" {
 		timeout = 90 // the first run downloads the binary
 	}
 	return map[string]any{
@@ -105,8 +105,10 @@ func editSettings(root string, add bool) error {
 	}
 	events := []struct{ name, event, matcher string }{
 		{"SessionStart", "session-start", ""},
+		{"UserPromptSubmit", "user-prompt-submit", ""},
 		{"PreToolUse", "pre-tool-use", ""},
-		{"PostToolUse", "post-tool-use", "Bash"},
+		{"PostToolUse", "post-tool-use", ""},
+		{"Stop", "stop", ""},
 	}
 	for _, e := range events {
 		groups, _ := hooks[e.name].([]any)
@@ -228,6 +230,6 @@ func readme(version string) string {
 		"  checks its SHA-256 against the values written in it, and runs it.\n" +
 		"- The hooks are in `.claude/settings.json`.\n\n" +
 		"Update: run the setup command again. Remove: `.claude/assume-nothing/run.sh install-repo --remove`,\n" +
-		"or delete this folder and the three hooks that call `" + Launcher + "`.\n\n" +
+		"or delete this folder and the hooks that call `" + Launcher + "`.\n\n" +
 		"https://github.com/kajisho5/assume-nothing\n"
 }

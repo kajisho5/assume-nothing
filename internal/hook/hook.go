@@ -1,7 +1,8 @@
 // Package hook answers the lifecycle hooks of coding agents.
 //
 // The input and output shapes follow Claude Code's hooks (SessionStart,
-// PreToolUse, PostToolUse). Codex CLI uses the same field names for these events.
+// UserPromptSubmit, PreToolUse, PostToolUse, Stop). Codex CLI uses the same
+// field names for these events; Gemini CLI is converted in Encode.
 package hook
 
 import (
@@ -18,6 +19,7 @@ import (
 	"github.com/kajisho5/assume-nothing/internal/probe"
 	"github.com/kajisho5/assume-nothing/internal/render"
 	"github.com/kajisho5/assume-nothing/internal/store"
+	"github.com/kajisho5/assume-nothing/internal/target"
 )
 
 // Input is what the agent sends on stdin.
@@ -28,10 +30,17 @@ type Input struct {
 	Source        string          `json:"source"`
 	ToolName      string          `json:"tool_name"`
 	ToolInput     json.RawMessage `json:"tool_input"`
+	ToolResponse  json.RawMessage `json:"tool_response"`
+	Prompt        string          `json:"prompt"`           // UserPromptSubmit, BeforeAgent
+	StopActive    bool            `json:"stop_hook_active"` // Stop, AfterAgent
+	LastMessage   string          `json:"last_assistant_message"`
+	PromptResp    string          `json:"prompt_response"` // Gemini's AfterAgent
 }
 
 // Output is what the hook prints on stdout. Nil means "say nothing".
 type Output struct {
+	Decision           string    `json:"decision,omitempty"` // only "block", only for Stop
+	Reason             string    `json:"reason,omitempty"`
 	HookSpecificOutput *Specific `json:"hookSpecificOutput,omitempty"`
 }
 
@@ -56,6 +65,16 @@ var save = store.Save
 func Strict() bool {
 	switch strings.ToLower(os.Getenv("ASSUME_NOTHING_STRICT")) {
 	case "1", "true", "yes", "on":
+		return true
+	}
+	return false
+}
+
+// TargetsOff reports whether the lookup check is turned off
+// (ASSUME_NOTHING_TARGETS=0). The environment probe still runs.
+func TargetsOff() bool {
+	switch strings.ToLower(os.Getenv("ASSUME_NOTHING_TARGETS")) {
+	case "0", "false", "no", "off":
 		return true
 	}
 	return false
@@ -96,7 +115,7 @@ func SessionStart(in Input) *Output {
 		fmt.Fprintln(os.Stderr, "assume-nothing: could not save the probe record:", err)
 	}
 	store.Prune(30 * 24 * time.Hour)
-	return &Output{&Specific{HookEventName: "SessionStart", AdditionalContext: render.Snapshot(st, DeepCommand)}}
+	return &Output{HookSpecificOutput: &Specific{HookEventName: "SessionStart", AdditionalContext: render.Snapshot(st, DeepCommand)}}
 }
 
 // shellTools are the shell tool names of the supported agents:
@@ -219,8 +238,46 @@ func missingReason(missing []string, st *store.State) string {
 	return render.Cap(b.String(), render.Limit)
 }
 
-// PostToolUse re-checks tools after something was installed and reports what changed.
+// writeTools never count as looking something up: they write or talk.
+var writeTools = map[string]bool{
+	"Write": true, "Edit": true, "MultiEdit": true, "NotebookEdit": true, "TodoWrite": true,
+	"TaskCreate": true, "TaskUpdate": true, "AskUserQuestion": true, "SendUserMessage": true,
+	"SendUserFile": true, "apply_patch": true, "write_file": true, "replace": true,
+	"write_todos": true, "save_memory": true,
+}
+
+func targetLog(session string) (target.Log, bool) {
+	p, err := store.TargetLogPath(session)
+	if err != nil {
+		return target.Log{}, false
+	}
+	return target.Log{Path: p}, true
+}
+
+// noteLookup records which named targets a finished tool call looked at.
+func noteLookup(in Input) {
+	if writeTools[in.ToolName] || in.ToolName == "" {
+		return
+	}
+	lg, ok := targetLog(in.SessionID)
+	if !ok {
+		return
+	}
+	ts, err := lg.Read()
+	if err != nil {
+		return
+	}
+	if keys := ts.Touched(in.ToolInput, in.ToolResponse); len(keys) > 0 {
+		if err := lg.MarkSeen(keys, in.ToolName); err != nil {
+			fmt.Fprintln(os.Stderr, "assume-nothing: could not save the lookup record:", err)
+		}
+	}
+}
+
+// PostToolUse notes what a tool looked at, and re-checks tools after
+// something was installed and reports what changed.
 func PostToolUse(in Input) *Output {
+	noteLookup(in)
 	cmd := bashCommand(in)
 	if cmd == "" || !gate.InstallsSomething(cmd) {
 		return nil
@@ -250,12 +307,121 @@ func PostToolUse(in Input) *Output {
 	return withContext("PostToolUse", "assume-nothing: the environment changed after that install:\n"+render.Facts(changed))
 }
 
+// UserPromptSubmit runs before the agent reads a request. It makes sure a
+// probe exists (so the first tool call is not stopped for it), and names the
+// things the request is about, which stay UNKNOWN until looked up.
+func UserPromptSubmit(in Input) *Output {
+	var notes []string
+	if _, err := store.Load(in.SessionID); err != nil {
+		st := fresh(in)
+		if serr := save(st); serr != nil {
+			fmt.Fprintln(os.Stderr, "assume-nothing: could not save the probe record:", serr)
+		}
+		notes = append(notes, render.Snapshot(st, DeepCommand))
+	}
+	if !TargetsOff() {
+		ts := target.Extract(in.Prompt)
+		if lg, ok := targetLog(in.SessionID); ok {
+			// A request that names nothing is still recorded once targets exist,
+			// so the next answer is not checked against an older request.
+			if have, err := lg.Read(); err == nil && (len(ts) > 0 || len(have.Targets) > 0) {
+				var open []target.Target
+				for _, t := range ts {
+					if _, seen := have.Seen[t.Key]; !seen {
+						open = append(open, t)
+					}
+				}
+				if err := lg.AddTargets(ts); err != nil {
+					fmt.Fprintln(os.Stderr, "assume-nothing: could not save the target list:", err)
+				} else if len(open) > 0 {
+					notes = append(notes, targetNote(open))
+				}
+			}
+		}
+	}
+	if len(notes) == 0 {
+		return nil
+	}
+	return withContext("UserPromptSubmit", strings.Join(notes, "\n\n"))
+}
+
+func names(ts []target.Target) string {
+	var n []string
+	for _, t := range ts {
+		n = append(n, Clean(t.Text))
+	}
+	return strings.Join(n, ", ")
+}
+
+func targetNote(ts []target.Target) string {
+	return "[assume-nothing: targets]\n" +
+		"This request is about: " + names(ts) + ".\n" +
+		"Facts about them are UNKNOWN until you look them up in this session, in a primary source " +
+		"(the official docs, the repository, the file itself). What you remember may be outdated or wrong. " +
+		"An answer that states facts about them without a lookup will be stopped once."
+}
+
+// SubstantialAnswer is the length (in characters) from which an answer counts
+// as being about what the request named, even without repeating the name.
+const SubstantialAnswer = 120
+
+// Stop runs when the agent is about to finish. If its answer talks about a
+// target that nothing in the session looked at, it is sent back once.
+func Stop(in Input) *Output {
+	if in.StopActive || TargetsOff() {
+		return nil // already sent back once (trust it now), or turned off
+	}
+	msg := in.LastMessage
+	if msg == "" {
+		msg = in.PromptResp
+	}
+	if strings.TrimSpace(msg) == "" || target.Hedged(msg) {
+		return nil
+	}
+	lg, ok := targetLog(in.SessionID)
+	if !ok {
+		return nil
+	}
+	ts, err := lg.Read()
+	if err != nil {
+		return nil
+	}
+	// A real answer to the latest request is about what that request named,
+	// even when it does not repeat the name.
+	latest := map[string]bool{}
+	if len([]rune(strings.TrimSpace(msg))) >= SubstantialAnswer {
+		for _, k := range ts.Latest {
+			latest[k] = true
+		}
+	}
+	var hit []target.Target
+	var keys []string
+	for _, t := range ts.Unseen() {
+		if !ts.Warned[t.Key] && (latest[t.Key] || target.Mentions(msg, t)) {
+			hit = append(hit, t)
+			keys = append(keys, t.Key)
+		}
+	}
+	if len(hit) == 0 {
+		return nil
+	}
+	if err := lg.MarkWarned(keys); err != nil {
+		fmt.Fprintln(os.Stderr, "assume-nothing: could not save the target list:", err)
+		return nil // a stop that cannot be remembered might repeat; let it go
+	}
+	return &Output{Decision: "block", Reason: "assume-nothing: your answer talks about " + names(hit) +
+		", but nothing in this session looked it up (no tool read a page, file, or command output about it).\n" +
+		"Before you finish, either look it up in a primary source (official docs, the repository, the file itself) " +
+		"and correct the answer where it was wrong, or tell the user plainly which statements are not verified.\n" +
+		"If you did check it with something this hook cannot see (for example a hosted web search), say where you read it, then finish."}
+}
+
 func deny(reason string) *Output {
-	return &Output{&Specific{HookEventName: "PreToolUse", PermissionDecision: "deny", PermissionDecisionReason: reason}}
+	return &Output{HookSpecificOutput: &Specific{HookEventName: "PreToolUse", PermissionDecision: "deny", PermissionDecisionReason: reason}}
 }
 
 func withContext(event, text string) *Output {
-	return &Output{&Specific{HookEventName: event, AdditionalContext: text}}
+	return &Output{HookSpecificOutput: &Specific{HookEventName: event, AdditionalContext: text}}
 }
 
 // Run reads one event from data and returns the answer for it.
@@ -276,6 +442,10 @@ func Run(event string, data []byte) (*Output, error) {
 		return PreToolUse(in), nil
 	case "post-tool-use", "PostToolUse", "AfterTool":
 		return PostToolUse(in), nil
+	case "user-prompt-submit", "UserPromptSubmit", "BeforeAgent":
+		return UserPromptSubmit(in), nil
+	case "stop", "Stop", "AfterAgent":
+		return Stop(in), nil
 	}
 	return nil, fmt.Errorf("unknown hook event %q", event)
 }
@@ -287,20 +457,50 @@ const (
 	Gemini = "gemini" // Gemini CLI: BeforeTool / AfterTool, top-level decision
 )
 
+// DetectAgent refines the agent named on the command line. Codex reads the
+// same hooks file as Claude Code, so both arrive as "claude"; Codex's input
+// carries a turn_id and Claude Code sets CLAUDE_PROJECT_DIR. When unsure it
+// answers Codex, whose shapes Claude Code also accepts.
+func DetectAgent(data []byte, agent string) string {
+	if agent != Claude {
+		return agent
+	}
+	var probe struct {
+		TurnID string `json:"turn_id"`
+	}
+	_ = json.Unmarshal(data, &probe)
+	if probe.TurnID != "" || os.Getenv("CLAUDE_PROJECT_DIR") == "" {
+		return Codex
+	}
+	return Claude
+}
+
 // Encode turns an answer into the JSON the given agent expects. It returns nil
 // when there is nothing to say.
 func Encode(out *Output, agent string) ([]byte, error) {
-	if out == nil || out.HookSpecificOutput == nil {
+	if out == nil || (out.HookSpecificOutput == nil && out.Decision == "") {
 		return nil, nil
+	}
+	if agent == Claude && out.Decision == "block" {
+		// Claude Code continues the turn on Stop additionalContext too, and shows
+		// it as hook feedback instead of a hook error.
+		return json.Marshal(Output{HookSpecificOutput: &Specific{HookEventName: "Stop", AdditionalContext: out.Reason}})
 	}
 	if agent != Gemini {
 		return json.Marshal(out)
 	}
+	if out.Decision == "block" {
+		// AfterAgent: "deny" rejects the answer and sends reason as a new prompt.
+		return json.Marshal(map[string]string{"decision": "deny", "reason": out.Reason})
+	}
 	s := out.HookSpecificOutput
+	if s == nil {
+		return nil, nil
+	}
 	if s.PermissionDecision == "deny" {
 		return json.Marshal(map[string]string{"decision": "deny", "reason": s.PermissionDecisionReason})
 	}
-	ev := map[string]string{"SessionStart": "SessionStart", "PostToolUse": "AfterTool"}[s.HookEventName]
+	ev := map[string]string{"SessionStart": "SessionStart", "PostToolUse": "AfterTool", "UserPromptSubmit": "BeforeAgent"}[s.HookEventName]
 	if ev == "" || s.AdditionalContext == "" {
 		// Gemini's BeforeTool cannot add context; say nothing rather than guess.
 		return nil, nil
