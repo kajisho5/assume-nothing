@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.2.0] - 2026-10-29
+
+- Codex CLI support: the same plugin installs as a Codex plugin (`codex plugin marketplace add kajisho5/assume-nothing@dist`).
+- Gemini CLI support: an extension on the `gemini` branch (`gemini extensions install https://github.com/kajisho5/assume-nothing --ref gemini`), using BeforeTool / AfterTool and Gemini's own answer format.
+- `hook --agent claude|codex|gemini` selects the answer format.
+
 ## [0.1.0] - 2026-10-29
 
 First release, for Claude Code.

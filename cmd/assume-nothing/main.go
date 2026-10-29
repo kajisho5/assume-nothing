@@ -25,7 +25,8 @@ var version = "dev"
 const usage = `assume-nothing — make your coding agent probe before it acts.
 
 Usage:
-  assume-nothing hook <session-start|pre-tool-use|post-tool-use>   (reads the agent's JSON on stdin)
+  assume-nothing hook [--agent claude|codex|gemini] <event>          (reads the agent's JSON on stdin)
+        events: session-start, pre-tool-use, post-tool-use (also SessionStart, PreToolUse, BeforeTool, ...)
   assume-nothing probe [--json] [--cwd DIR]                         print the session probe
   assume-nothing deep net [--json]                                  check outbound network access
   assume-nothing deep tool <name> [--json]                          check one tool in depth
@@ -86,6 +87,20 @@ func runHook(args []string) (code int) {
 			code = 0
 		}
 	}()
+	agent := hook.Claude
+	var rest []string
+	for i := 0; i < len(args); i++ {
+		switch a := args[i]; {
+		case a == "--agent" && i+1 < len(args):
+			agent = args[i+1]
+			i++
+		case strings.HasPrefix(a, "--agent="):
+			agent = strings.TrimPrefix(a, "--agent=")
+		default:
+			rest = append(rest, a)
+		}
+	}
+	args = rest
 	if len(args) < 1 {
 		fmt.Fprintln(os.Stderr, "assume-nothing: missing hook event")
 		return 0
@@ -100,15 +115,14 @@ func runHook(args []string) (code int) {
 		fmt.Fprintln(os.Stderr, "assume-nothing:", err)
 		return 0
 	}
-	if out == nil || out.HookSpecificOutput == nil {
-		return 0
-	}
-	b, err := json.Marshal(out)
+	b, err := hook.Encode(out, agent)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "assume-nothing:", err)
 		return 0
 	}
-	os.Stdout.Write(append(b, '\n'))
+	if len(b) > 0 {
+		os.Stdout.Write(append(b, '\n'))
+	}
 	return 0
 }
 

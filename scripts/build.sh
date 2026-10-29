@@ -29,5 +29,22 @@ cp -R "$root/.claude-plugin" "$root/hooks" "$root/scripts" "$root/skills" "$out/
 rm -f "$out/plugin/.claude-plugin/marketplace.json" "$out/plugin/scripts/build.sh" "$out/plugin/scripts/smoke.sh"
 cp "$root/LICENSE" "$root/README.md" "$out/plugin/"
 
+# Codex reads the same hooks (it sets CLAUDE_PLUGIN_ROOT for compatibility);
+# it needs its own manifest and a marketplace file at the root.
+cp -R "$root/packaging/codex/.codex-plugin" "$root/packaging/codex/.agents" "$out/plugin/"
+
+# Gemini CLI: an extension with its own hook format, published on its own branch.
+mkdir -p "$out/gemini"
+cp -R "$root/packaging/gemini/." "$out/gemini/"
+cp -R "$out/plugin/libexec" "$out/gemini/"
+mkdir -p "$out/gemini/scripts"
+cp "$root/scripts/run.sh" "$out/gemini/scripts/"
+cp "$root/LICENSE" "$root/README.md" "$out/gemini/"
+
+# every manifest carries the version being built
+for f in "$out/plugin/.claude-plugin/plugin.json" "$out/plugin/.codex-plugin/plugin.json" "$out/gemini/gemini-extension.json"; do
+  sed -i.bak "s/\"version\": *\"[^\"]*\"/\"version\": \"$version\"/" "$f" && rm -f "$f.bak"
+done
+
 (cd "$out/assets" && if command -v sha256sum >/dev/null 2>&1; then sha256sum assume-nothing-* > checksums.txt; else shasum -a 256 assume-nothing-* > checksums.txt; fi)
-echo "plugin laid out in $out/plugin"
+echo "plugin laid out in $out/plugin, Gemini extension in $out/gemini"

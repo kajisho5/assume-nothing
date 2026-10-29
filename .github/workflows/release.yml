@@ -60,6 +60,19 @@ jobs:
           git add -A
           git commit -qm "assume-nothing v$V (built from ${GITHUB_SHA})"
           git push -f "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" dist
+      - name: Publish the gemini branch
+        if: steps.v.outputs.new == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          V: ${{ steps.v.outputs.version }}
+        run: |
+          cd out/gemini
+          git init -q -b gemini
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -qm "assume-nothing v$V for Gemini CLI (built from ${GITHUB_SHA})"
+          git push -f "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" gemini
       - name: Create the release
         if: steps.v.outputs.new == 'true'
         env:
