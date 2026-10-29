@@ -3,7 +3,7 @@
     "SessionStart": [
       {
         "hooks": [
-          { "type": "command", "name": "assume-nothing-probe", "command": "\"${extensionPath}${/}scripts${/}run.sh\" hook --agent gemini SessionStart", "timeout": 15000 }
+          { "type": "command", "name": "assume-nothing-probe", "command": "sh \"${extensionPath}${/}scripts${/}run.sh\" hook --agent gemini SessionStart", "timeout": 15000 }
         ]
       }
     ],
@@ -11,7 +11,7 @@
       {
         "matcher": ".*",
         "hooks": [
-          { "type": "command", "name": "assume-nothing-gate", "command": "\"${extensionPath}${/}scripts${/}run.sh\" hook --agent gemini BeforeTool", "timeout": 15000 }
+          { "type": "command", "name": "assume-nothing-gate", "command": "sh \"${extensionPath}${/}scripts${/}run.sh\" hook --agent gemini BeforeTool", "timeout": 15000 }
         ]
       }
     ],
@@ -19,7 +19,7 @@
       {
         "matcher": "run_shell_command",
         "hooks": [
-          { "type": "command", "name": "assume-nothing-recheck", "command": "\"${extensionPath}${/}scripts${/}run.sh\" hook --agent gemini AfterTool", "timeout": 15000 }
+          { "type": "command", "name": "assume-nothing-recheck", "command": "sh \"${extensionPath}${/}scripts${/}run.sh\" hook --agent gemini AfterTool", "timeout": 15000 }
         ]
       }
     ]

@@ -33,4 +33,6 @@ if [ ! -x "$bin" ]; then
     exit 0
   fi
 fi
+# a zip upload can drop the executable bit; restore it, and fall back to sh-less exec
+[ -x "$bin" ] || chmod +x "$bin" 2>/dev/null
 exec "$bin" "$@"

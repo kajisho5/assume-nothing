@@ -1,5 +1,9 @@
 # Changelog
 
+## [0.3.1] - 2026-10-29
+
+- Works when added to a Claude account (Customize > Plugins), so it also runs in the Claude app's agentic sessions. Hooks now call the launcher through `sh`, and the launcher restores the binary's executable bit, because an uploaded zip can lose file permissions.
+
 ## [0.3.0] - 2026-10-29
 
 - Works in Claude Code cloud sessions (browser, Claude phone app) and for whole teams: `scripts/setup-repo.sh` sets it up inside a repository. Cloud sessions do not install plugins, but they run a repository's hooks.
