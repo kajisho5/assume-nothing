@@ -26,12 +26,20 @@ for target in darwin/arm64 darwin/amd64 linux/amd64 linux/arm64 windows/amd64 wi
 done
 
 cp -R "$root/.claude-plugin" "$root/hooks" "$root/scripts" "$root/skills" "$out/plugin/"
-rm -f "$out/plugin/.claude-plugin/marketplace.json" "$out/plugin/scripts/build.sh" "$out/plugin/scripts/smoke.sh" "$out/plugin/scripts/setup-repo.sh"
+rm -f "$out/plugin/.claude-plugin/marketplace.json" "$out/plugin/scripts/build.sh" "$out/plugin/scripts/smoke.sh" "$out/plugin/scripts/setup-repo.sh" "$out/plugin/scripts/setup.sh"
 cp "$root/LICENSE" "$root/README.md" "$out/plugin/"
 
 # Codex reads the same hooks (it sets CLAUDE_PLUGIN_ROOT for compatibility);
 # it needs its own manifest and a marketplace file at the root.
 cp -R "$root/packaging/codex/.codex-plugin" "$root/packaging/codex/.agents" "$out/plugin/"
+# Codex gets the same hooks without Claude Code's "onFailure" field.
+python3 -c 'import json,sys
+h=json.load(open(sys.argv[1]))
+for groups in h["hooks"].values():
+    for g in groups:
+        for x in g["hooks"]:
+            x.pop("onFailure", None)
+json.dump(h, open(sys.argv[2], "w"), indent=2)' "$out/plugin/hooks/hooks.json" "$out/plugin/hooks/codex-hooks.json"
 
 # Gemini CLI: an extension with its own hook format, published on its own branch.
 mkdir -p "$out/gemini"

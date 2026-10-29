@@ -95,12 +95,28 @@ Claude アプリ（ブラウザ・デスクトップ・iPhone で、AIがクラ�
 クラウド版はプラグインを入れませんが、リポに書いてあるフックは動かします。リポごとに1回、そのリポで開いた会話（iPhone から始めたクラウドの会話でも可）で、AIに次を実行してもらい、追加されたファイルをコミットしてもらいます。
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/kajisho5/assume-nothing/main/scripts/setup-repo.sh | sh
+curl -fsSL https://raw.githubusercontent.com/kajisho5/assume-nothing/main/scripts/setup.sh | sh -s repo
 ```
 
-追加されるのは `.claude/assume-nothing/run.sh` と、`.claude/settings.json` の5つのフックです。以後、そのリポで開く Claude Code はすべて、最初に下調べをします（クラウド、自分のパソコン、チームの人）。最初の1回だけ、その機械に合った実行ファイルを GitHub から取ってきて、改ざんがないか確かめてから使います。うまくいかないときは黙って通すので、AIが動けなくなることはありません。外すときは `.claude/assume-nothing/run.sh install-repo --remove`。
+追加されるのは `.claude/assume-nothing/run.sh` と、`.claude/settings.json` の6つのフックです。以後、そのリポで開く Claude Code はすべて、最初に下調べをします（クラウド、自分のパソコン、チームの人）。最初の1回だけ、その機械に合った実行ファイルを GitHub から取ってきて、改ざんがないか確かめてから使います。うまくいかないときは黙って通すので、AIが動けなくなることはありません。外すときは `.claude/assume-nothing/run.sh install-repo --remove`。
 
 条件：クラウドの会話がそのリポ1つだけを開いていること。GitHub への通信が許可されていること（標準の「Trusted」設定なら許可されています）。
+
+Cursor（試験対応）:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/kajisho5/assume-nothing/main/scripts/setup.sh | sh -s cursor
+```
+
+`~/.cursor/hooks.json` に追加され、すべてのプロジェクトで動きます（今あるフックはそのまま。外すときは `... | sh -s cursor --remove`）。
+
+OpenCode（試験対応）:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/kajisho5/assume-nothing/main/scripts/setup.sh | sh -s opencode
+```
+
+最初の道具の使用を下調べ付きで止めることと、入っていないコマンドを止めることができます。OpenCode には「答えが確定する前」に割り込める公開された仕組みがないため、調べずに答えたときの差し戻しは使えません。
 
 Codex CLI（試験対応）:
 
@@ -115,7 +131,7 @@ Gemini CLI（試験対応）:
 gemini extensions install https://github.com/kajisho5/assume-nothing --ref gemini
 ```
 
-Codex と Gemini は、インストールと形式の検査までは確認済みです。実際の会話の中で動かす確認はまだです。
+Codex・Gemini・Cursor・OpenCode は、形式の検査（OpenCode は Node での動作確認）までは済んでいます。実際の会話の中で動かす確認はまだです。
 
 ## しないこと
 
@@ -140,7 +156,7 @@ Codex と Gemini は、インストールと形式の検査までは確認済み
 
 ## 動く環境
 
-- Mac・Linux（amd64 / arm64）、Windows は Git Bash がある場合
+- Mac・Linux・Windows（amd64 / arm64）。Windows の Claude Code と Codex は Git Bash 経由で動きます（無い場合は止めずに素通り）。Cursor と OpenCode は Git Bash 不要です
 - ほかのソフトは不要です（Go で作った実行ファイル1つ）
 
 ## ライセンス

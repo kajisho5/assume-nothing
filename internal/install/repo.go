@@ -84,6 +84,9 @@ func hookEntry(event string) map[string]any {
 		"type":    "command",
 		"command": `sh "$CLAUDE_PROJECT_DIR/` + Launcher + `" hook ` + event,
 		"timeout": timeout,
+		// A hook that cannot run (for example on Windows without Git Bash, where
+		// "sh" is missing) must never block the agent.
+		"onFailure": "continue",
 	}
 }
 

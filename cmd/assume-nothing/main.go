@@ -34,6 +34,8 @@ Usage:
   assume-nothing deep tool <name> [--json]                          check one tool in depth
   assume-nothing install-repo --checksums FILE [DIR]                  set up hooks in a repository (works in cloud sessions)
   assume-nothing install-repo --remove [DIR]                         take them out again
+  assume-nothing install-cursor [--remove]                          add the hooks to ~/.cursor/hooks.json (all projects)
+  assume-nothing install-opencode [--remove]                        add the plugin to ~/.config/opencode/plugins/
   assume-nothing status [SESSION]                                   what it did in a session (default: the latest)
   assume-nothing version
 `
@@ -53,6 +55,8 @@ func main() {
 		os.Exit(runDeep(os.Args[2:]))
 	case "install-repo":
 		os.Exit(runInstallRepo(os.Args[2:]))
+	case "install-cursor", "install-opencode":
+		os.Exit(runInstallAgent(os.Args[1], os.Args[2:]))
 	case "status":
 		session := ""
 		if len(os.Args) > 2 {
@@ -106,6 +110,35 @@ func runInstallRepo(args []string) int {
 		return 1
 	}
 	fmt.Printf("assume-nothing v%s set up in %s\n  %s\n  .claude/settings.json (6 hooks)\nCommit both, and every Claude Code session on this repository probes first, cloud sessions included.\n", version, dir, install.Launcher)
+	return 0
+}
+
+func runInstallAgent(which string, args []string) int {
+	fs := flag.NewFlagSet(which, flag.ContinueOnError)
+	remove := fs.Bool("remove", false, "take it out again")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "assume-nothing:", err)
+		return 1
+	}
+	var path string
+	if which == "install-cursor" {
+		path, err = install.Cursor(home, *remove)
+	} else {
+		path, err = install.OpenCode(home, *remove)
+	}
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "assume-nothing:", err)
+		return 1
+	}
+	if *remove {
+		fmt.Println("assume-nothing: removed from", path)
+	} else {
+		fmt.Printf("assume-nothing v%s set up: %s\nStart a new session to use it.\n", version, path)
+	}
 	return 0
 }
 

@@ -123,12 +123,28 @@ Add it to your Claude account once, and it syncs into the app's agentic sessions
 Cloud sessions do not install plugins, but they do run hooks committed in a repository. Set it up once per repository, from any session on it (a cloud session started from your phone works), by asking Claude to run:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/kajisho5/assume-nothing/main/scripts/setup-repo.sh | sh
+curl -fsSL https://raw.githubusercontent.com/kajisho5/assume-nothing/main/scripts/setup.sh | sh -s repo
 ```
 
-and to commit what it adds (`.claude/assume-nothing/run.sh` and five hooks in `.claude/settings.json`). From then on every Claude Code session on that repository probes first: cloud sessions, your laptop, your teammates. On first use the launcher downloads the pinned release for the machine and checks its SHA-256; if anything fails it stays silent and lets the agent work. Remove it with `.claude/assume-nothing/run.sh install-repo --remove`.
+and to commit what it adds (`.claude/assume-nothing/run.sh` and six hooks in `.claude/settings.json`). From then on every Claude Code session on that repository probes first: cloud sessions, your laptop, your teammates. On first use the launcher downloads the pinned release for the machine and checks its SHA-256; if anything fails it stays silent and lets the agent work. Remove it with `.claude/assume-nothing/run.sh install-repo --remove`.
 
 Cloud sessions load a repository's hooks only when the session has that one repository, and the download needs network access to GitHub (allowed by the default "Trusted" level).
+
+**Cursor** (experimental)
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/kajisho5/assume-nothing/main/scripts/setup.sh | sh -s cursor
+```
+
+This adds the hooks to `~/.cursor/hooks.json` for every project, next to any hooks you already have (`... | sh -s cursor --remove` takes them out). Cursor also runs hooks written for Claude Code, so a repository set up with `setup.sh repo` is covered in Cursor too, except the answer check, which needs Cursor's own `afterAgentResponse`.
+
+**OpenCode** (experimental)
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/kajisho5/assume-nothing/main/scripts/setup.sh | sh -s opencode
+```
+
+This adds a plugin to `~/.config/opencode/plugins/`. It stops the first tool call with the probe and stops commands that are not installed. OpenCode's documented plugin events have no "before the answer is final" point, so the answer check is not available there.
 
 **Codex CLI** (experimental)
 
@@ -145,7 +161,7 @@ Codex asks you to review and trust plugin hooks before they run.
 gemini extensions install https://github.com/kajisho5/assume-nothing --ref gemini
 ```
 
-Then start a new session. Codex and Gemini support is new: the packages install and validate with each tool, and the hook answers follow each tool's documented format, but they have not yet been run through a live session.
+Then start a new session. Codex, Gemini, Cursor and OpenCode support is new: the packages install and validate with each tool, and the hook answers follow each tool's documented format, but they have not yet been run through a live session.
 
 ## How it works
 
@@ -195,7 +211,7 @@ Add tools your project depends on to `.assume-nothing.json` in the project folde
 ## Requirements
 
 - Claude Code with plugin support, Codex CLI with hooks, or Gemini CLI with hooks
-- macOS or Linux (amd64 / arm64), or Windows with Git Bash (amd64 / arm64)
+- macOS or Linux (amd64 / arm64), or Windows (amd64 / arm64). On Windows, Claude Code and Codex run the hooks through Git Bash; without it the hooks are skipped (never blocking). Cursor and OpenCode call the program directly and need no Git Bash.
 - No runtime needed. It is a single Go binary. (A tool that checks whether Python is installed should not need Python.)
 
 ## Roadmap

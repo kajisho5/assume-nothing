@@ -180,6 +180,16 @@ func Latest() (string, error) {
 	return best, nil
 }
 
+// LastPath is where the agent's latest answer is kept for agents whose stop
+// hook does not carry it (Cursor sends it in afterAgentResponse instead).
+func LastPath(session string) (string, error) {
+	d, err := Dir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(d, safeName(session)+".last.log"), nil
+}
+
 // ErrNotFound means no record exists yet for the session.
 var ErrNotFound = errors.New("no probe record for this session")
 

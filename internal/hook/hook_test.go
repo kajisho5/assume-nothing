@@ -518,3 +518,39 @@ func TestScriptedFetchIsALookup(t *testing.T) {
 }
 
 func mustJSON(v any) []byte { b, _ := json.Marshal(v); return b }
+
+func TestCursorShapes(t *testing.T) {
+	setup(t)
+	dir := project(t)
+	data := func(m map[string]any) []byte {
+		m["cursor_version"] = "9.9.9"
+		m["conversation_id"] = "cur1"
+		m["workspace_roots"] = []string{dir}
+		b, _ := json.Marshal(m)
+		return b
+	}
+	run := func(ev string, m map[string]any) string {
+		b := data(m)
+		out, err := Run(ev, b)
+		if err != nil {
+			t.Fatal(err)
+		}
+		e, _ := Encode(out, DetectAgent(b, Claude))
+		return string(e)
+	}
+	if s := run("sessionStart", map[string]any{"session_id": "cur1"}); !strings.Contains(s, `"additional_context"`) {
+		t.Fatalf("sessionStart: %s", s)
+	}
+	if s := run("preToolUse", map[string]any{"tool_name": "Shell", "tool_input": map[string]any{"command": "zz-fictional-tool"}}); !strings.Contains(s, `"permission":"deny"`) || !strings.Contains(s, `"agent_message"`) {
+		t.Fatalf("preToolUse: %s", s)
+	}
+	run("beforeSubmitPrompt", map[string]any{"prompt": "lumen-kitについて調べて"})
+	run("afterAgentResponse", map[string]any{"text": "lumen-kit has 40 widgets."})
+	if s := run("stop", map[string]any{"status": "completed", "loop_count": 0}); !strings.Contains(s, `"followup_message"`) {
+		t.Fatalf("stop: %s", s)
+	}
+	run("afterAgentResponse", map[string]any{"text": "lumen-kit has 40 widgets."})
+	if s := run("stop", map[string]any{"status": "completed", "loop_count": 1}); s != "" {
+		t.Fatalf("stop after a follow-up: %s", s)
+	}
+}

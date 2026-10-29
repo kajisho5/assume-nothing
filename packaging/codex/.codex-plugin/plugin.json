@@ -8,5 +8,5 @@
   "license": "MIT",
   "keywords": ["hooks", "probe", "environment", "hallucination"],
   "skills": "./skills/",
-  "hooks": "./hooks/hooks.json"
+  "hooks": "./hooks/codex-hooks.json"
 }
