@@ -196,3 +196,51 @@ func TestGenericKatakanaIsNotAName(t *testing.T) {
 		t.Errorf("generic nouns taken as names: %v", texts(got))
 	}
 }
+
+func TestMultilingual(t *testing.T) {
+	cases := []struct {
+		prompt string
+		want   string
+	}{
+		{"秀丸エディタについて調べて", "秀丸エディタ"},
+		{"「一太郎」の最新版は？", "一太郎"},
+		{"架空のツール「星雲帳」とは", "星雲帳"},
+		{"星雲帳を調べて", ""}, // kanji only: quote it to make it a name
+		{"原因を調べて", ""},
+		{"このエラーの原因を調べて", ""},
+		{"ログを調べて", ""},
+		{"ルミナス帳を調べて", "ルミナス帳"},
+		{"天気について教えて", ""},
+		{"料金について教えて", ""},
+		{"关于「星云笔记」的最新版本", "星云笔记"},
+		{"星云笔记是什么", "星云笔记"},
+		{"「별빛노트」에 대해 알려줘", "별빛노트"},
+		{"별빛노트의 최신 버전은?", "별빛노트"},
+		{"¿Qué es «Nebulina»?", "Nebulina"},
+		{"Qu'est-ce que « Nebulina » ?", "Nebulina"},
+	}
+	for _, c := range cases {
+		got := strings.Join(texts(Extract(c.prompt)), "|")
+		if got != c.want {
+			t.Errorf("Extract(%q) = %q, want %q", c.prompt, got, c.want)
+		}
+	}
+	for _, p := range []string{"星云笔记的价格", "별빛노트의 최신 버전은?", "¿Cuál es el precio?", "Quel est le prix ?"} {
+		if !Fresh(p) {
+			t.Errorf("not fresh: %q", p)
+		}
+	}
+	for _, h := range []string{"星雲帳については確かな情報がないため断言できません", "未验证", "我不确定", "확인하지 않았습니다", "잘 모르겠습니다", "no lo he verificado", "je ne sais pas"} {
+		if !Hedged(h) {
+			t.Errorf("not a hedge: %q", h)
+		}
+	}
+	tg := Extract("「星雲帳」とは")[0]
+	if !Mentions("星雲帳は架空のノートアプリです。", tg) {
+		t.Error("kanji mention not found")
+	}
+	ko := Extract("「별빛노트」에 대해")[0]
+	if !Mentions("별빛노트는 메모 앱입니다", ko) {
+		t.Error("hangul mention not found")
+	}
+}

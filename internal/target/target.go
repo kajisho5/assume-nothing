@@ -29,12 +29,13 @@ type Target struct {
 const MaxPerPrompt = 8
 
 var (
-	pasted    = regexp.MustCompile(`(?s)<pasted_content[^>]*>.*?</pasted_content[^>]*>`)
-	fence     = regexp.MustCompile("(?s)```.*?```")
-	urlRe     = regexp.MustCompile(`https?://[^\s<>"'` + "`" + `）」』】、。]+`)
-	email     = regexp.MustCompile(`[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+`)
-	backtick  = regexp.MustCompile("`([^`\\s]{2,80})`")
-	quoted    = regexp.MustCompile(`[「『"“]([A-Za-z0-9][A-Za-z0-9 ._/+-]{1,60}|[ァ-ヶー・]{2,30})[」』"”]`)
+	pasted   = regexp.MustCompile(`(?s)<pasted_content[^>]*>.*?</pasted_content[^>]*>`)
+	fence    = regexp.MustCompile("(?s)```.*?```")
+	urlRe    = regexp.MustCompile(`https?://[^\s<>"'` + "`" + `）」』】、。]+`)
+	email    = regexp.MustCompile(`[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+`)
+	backtick = regexp.MustCompile("`([^`\\s]{2,80})`")
+	// A quoted name in any script: 「一太郎」, "Nebulina", «Nebulina», 『별빛노트』.
+	quoted    = regexp.MustCompile(`[「『"“«‹【]\s*([\p{L}\p{N}][\p{L}\p{N} ._/+・ー-]{0,40}?)\s*[」』"”»›】]`)
 	ownerRepo = regexp.MustCompile(`(?:^|[^A-Za-z0-9._/-])([A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*)`)
 	compound  = regexp.MustCompile(`(?:^|[^A-Za-z0-9_./-])([A-Za-z][A-Za-z0-9]*(?:[-_.][A-Za-z0-9]+)+)`)
 	// An ASCII name right before a Japanese "about / what is / look up" phrase:
@@ -43,6 +44,15 @@ var (
 	// English: "research Tauri", "look up Astro", "what is Bun".
 	enAbout = regexp.MustCompile(`(?i)\b(?:research|look\s+up|look\s+into|investigate|what\s+is|what's|tell\s+me\s+about)\s+([A-Za-z][A-Za-z0-9+#._-]{2,40})`)
 	version = regexp.MustCompile(`^v?\d+(\.\d+)*$`)
+	// A name of any script right before a request to look it up:
+	// 「秀丸エディタについて調べて」「星雲帳を調べて」.
+	jaResearch = regexp.MustCompile(`([\p{Han}\p{Katakana}ーA-Za-z0-9・]{2,30})(?:について|の(?:こと|情報|仕様|最新情報))?\s*(?:を)?\s*(?:調べ|しらべ|調査|リサーチ|検索)`)
+	// A mixed name (kanji with katakana or Latin letters) before 「について」「とは」.
+	jaMixed = regexp.MustCompile(`([\p{Han}\p{Katakana}ーA-Za-z0-9・]{2,30})\s*(?:について|とは|って何|ってなに|の(?:最新|仕様|料金|価格|バージョン|使い方|機能))`)
+	// Chinese: 关于X / X是什么 / 查一下X / X的最新版本.
+	zhAbout = regexp.MustCompile(`(?:关于|關於|查一下|查询|查詢|搜索)\s*([\p{Han}A-Za-z0-9·]{2,20}?)(?:的|是|，|。|？|\?|\s|$)|([\p{Han}A-Za-z0-9·]{2,20}?)(?:是什么|是什麼|的最新|的价格|的價格)`)
+	// Korean: X에 대해 / X란 / X의 최신.
+	koAbout = regexp.MustCompile(`([\p{Hangul}A-Za-z0-9]{2,20}?)(?:에 대해|에 대한|이란|란 무엇|의 최신|의 가격|의 요금)`)
 )
 
 // stop are words the patterns can catch that are not things to look up.
@@ -50,6 +60,8 @@ var stop = map[string]bool{
 	"eg": true, "ie": true, "etc": true, "vs": true, "the": true, "this": true, "that": true,
 	"it": true, "its": true, "a": true, "an": true, "andor": true, "inputoutput": true,
 	"readwrite": true, "io": true, "yes": true, "no": true, "ok": true,
+	// French and other words with hyphens that are not names
+	"estce": true, "cestadire": true, "peutetre": true, "quelquun": true, "aujourdhui": true,
 }
 
 // common words that appear in pairs like "and/or" or "client/server";
@@ -68,7 +80,10 @@ func init() {
 		バージョン ファイル フォルダ フォルダー コマンド リポジトリ リポ プラグイン スキル サービス サーバー サーバ
 		データ コード エラー プロジェクト フレームワーク パッケージ モデル システム ドキュメント ページ ブラウザ
 		デバイス パソコン スマホ メール アカウント プラン オプション モジュール コンポーネント テンプレート
-		デザイン レイアウト ボタン メニュー エディタ エディター ターミナル シェル スクリプト プログラム`) {
+		デザイン レイアウト ボタン メニュー エディタ エディター ターミナル シェル スクリプト プログラム
+		ログ バグ テスト ビルド デプロイ ブランチ コミット プルリク ネット ネットワーク キャッシュ メモリ ディスク
+		パス ポート ユーザー ユーザ パスワード セキュリティ パフォーマンス エラーログ コンソール ウィンドウ
+		画面 原因 設定 環境 動作 挙動 仕様 結果 内容 方法 理由 問題 状況 履歴 使い方`) {
 		stop[Key(w)] = true
 	}
 }
@@ -90,7 +105,7 @@ func Key(s string) string {
 }
 
 // fresh matches a request about something that changes over time.
-var fresh = regexp.MustCompile(`(?i)(最新|料金|価格|値段|相場|いくら|\blatest\b|\bnewest\b|\bpricing\b|\bprice of\b|\bhow much (?:does|is)\b|\bcurrent version\b|\bup[- ]to[- ]date\b)`)
+var fresh = regexp.MustCompile(`(?i)(最新|料金|価格|値段|相場|いくら|价格|價格|多少钱|定价|최신|가격|요금|\búltim[ao]\b|\bprecio\b|dernière version|\bprix\b|neueste|\bpreis\b|\blatest\b|\bnewest\b|\bpricing\b|\bprice of\b|\bhow much (?:does|is)\b|\bcurrent version\b|\bup[- ]to[- ]date\b)`)
 
 // Fresh reports whether a request asks about something that changes over
 // time (the latest version, a price), which memory cannot answer reliably.
@@ -177,10 +192,52 @@ func Extract(prompt string) []Target {
 	for _, m := range jaAbout.FindAllStringSubmatch(text, -1) {
 		add(m[1], Key(m[1]))
 	}
+	for _, m := range jaResearch.FindAllStringSubmatch(text, -1) {
+		// 「原因を調べて」「ログを調べて」 are ordinary words: a name written only
+		// in kanji is taken when it is quoted, not here.
+		if n := m[1]; hasNameScript(n) {
+			add(n, Key(n))
+		}
+	}
+	for _, m := range jaMixed.FindAllStringSubmatch(text, -1) {
+		// Kanji alone is usually an ordinary word (天気, 料金); take it only
+		// with katakana or Latin letters that are not a generic word.
+		if n := m[1]; hasNameScript(n) {
+			add(n, Key(n))
+		}
+	}
+	for _, m := range zhAbout.FindAllStringSubmatch(text, -1) {
+		n := m[1]
+		if n == "" {
+			n = m[2]
+		}
+		add(n, Key(n))
+	}
+	for _, m := range koAbout.FindAllStringSubmatch(text, -1) {
+		add(m[1], Key(m[1]))
+	}
 	for _, m := range enAbout.FindAllStringSubmatch(text, -1) {
 		add(strings.TrimRight(m[1], ".,;:!?"), Key(m[1]))
 	}
 	return out
+}
+
+// hasNameScript reports whether s has katakana or Latin letters beyond a
+// generic word ("秀丸エディタ" yes because of 秀丸+エディタ, "天気" no).
+func hasNameScript(s string) bool {
+	hasKanji, hasOther := false, false
+	for _, r := range s {
+		switch {
+		case unicode.Is(unicode.Han, r):
+			hasKanji = true
+		case unicode.Is(unicode.Katakana, r) || (r < 128 && unicode.IsLetter(r)):
+			hasOther = true
+		}
+	}
+	if !hasOther {
+		return false
+	}
+	return hasKanji || !stop[Key(s)]
 }
 
 func hasLetter(s string) bool {
@@ -243,7 +300,7 @@ func HedgedAbout(text string, t Target) bool {
 }
 
 // hedge matches an answer that already says it did not verify something.
-var hedge = regexp.MustCompile(`(?i)(未確認|未検証|確認(?:は|を)?していません|確認できていません|確認できません|検証(?:は|を)?していません|記憶に基づ|記憶で答え|分かりません|わかりません|知りません|情報がありません|情報を持っていません|not verified|unverified|from memory|haven't verified|have not verified|could(?:n't| not) (?:verify|confirm|find)|i don't know|i do not know|don't have (?:any |reliable )?information|no reliable information)`)
+var hedge = regexp.MustCompile(`(?i)(未確認|未検証|確かな情報が(?:ない|ありません)|情報がない|分からない|わからない|知らない|断言(?:でき|は)|確認(?:は|を)?していません|確認できていません|確認できません|検証(?:は|を)?していません|記憶に基づ|記憶で答え|分かりません|わかりません|知りません|情報がありません|情報を持っていません|not verified|unverified|from memory|未验证|未經驗證|未经验证|未核实|不确定|不確定|我不知道|没有核实|확인하지 않았|확인되지 않|검증하지 않|모르겠|sin verificar|no lo he verificado|no estoy seguro|non vérifié|pas vérifié|je ne sais pas|nicht überprüft|nicht verifiziert|weiß ich nicht|haven't verified|have not verified|could(?:n't| not) (?:verify|confirm|find)|i don't know|i do not know|don't have (?:any |reliable )?information|no reliable information)`)
 
 // Hedged reports whether text already admits that something is not verified,
 // so sending it back would only repeat that.
