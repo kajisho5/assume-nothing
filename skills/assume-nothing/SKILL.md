@@ -16,7 +16,7 @@ At the start of the session you received an `[assume-nothing: environment probe]
 
 ## How to check
 
-Run these through the shell tool. They print facts in the same format as the probe.
+Run these through the shell tool. They print facts in the same format as the probe. If the path below does not resolve, use the exact command shown on the "Deeper checks" line of the probe.
 
 - Network access: `"${CLAUDE_PLUGIN_ROOT}/scripts/run.sh" deep net`
 - One tool in depth (path, version, extra checks for some tools): `"${CLAUDE_PLUGIN_ROOT}/scripts/run.sh" deep tool <name>`

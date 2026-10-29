@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/kajisho5/assume-nothing/internal/gate"
 	"github.com/kajisho5/assume-nothing/internal/store"
@@ -154,7 +155,8 @@ func TestSaveFailureNeverBlocksForever(t *testing.T) {
 	event(t, "session-start", map[string]any{"session_id": "full", "cwd": dir})
 	old := save
 	defer func() { save = old }()
-	save = func(*store.State) error { return errors.New("disk full (simulated)") }
+	calls := 0
+	save = func(*store.State) error { calls++; return errors.New("disk full (simulated)") }
 	in := map[string]any{"session_id": "full", "cwd": dir, "tool_name": "Bash", "tool_input": map[string]any{"command": "zz-fictional-missing --go"}}
 	for i := 0; i < 3; i++ {
 		out := event(t, "pre-tool-use", in)
@@ -165,9 +167,14 @@ func TestSaveFailureNeverBlocksForever(t *testing.T) {
 			t.Fatalf("attempt %d: the warning should still reach the agent: %+v", i+1, out)
 		}
 	}
-	// a session with no record and no way to save passes quietly
+	// a session with no record and no way to save passes quietly, without probing
+	calls = 0
+	start := time.Now()
 	if out := event(t, "pre-tool-use", map[string]any{"session_id": "never-saved", "cwd": dir, "tool_name": "Read", "tool_input": map[string]any{}}); out != nil {
 		t.Fatalf("unsaveable fresh session should pass quietly: %+v", out.HookSpecificOutput)
+	}
+	if calls != 1 || time.Since(start) > 500*time.Millisecond {
+		t.Fatalf("should fail fast without probing (saves=%d, took %v)", calls, time.Since(start))
 	}
 	// strict mode keeps blocking
 	t.Setenv("ASSUME_NOTHING_STRICT", "1")
@@ -182,6 +189,10 @@ func TestSelfCallDetection(t *testing.T) {
 		`assume-nothing-darwin-arm64 probe --json`:            true,
 		`cd ~/code/assume-nothing && npm test`:                false,
 		`grep -r assume-nothing .`:                            false,
+		`zzq; ./scripts/run.sh probe`:                         false,
+		`./scripts/run.sh probe`:                              false,
+		`"/x/assume-nothing/scripts/run.sh" deep net; zzq`:    false,
+		`"/x/assume-nothing/scripts/run.sh" deep tool $(zzq)`: false,
 	} {
 		if got := callsSelf(cmd); got != want {
 			t.Errorf("callsSelf(%q) = %v, want %v", cmd, got, want)

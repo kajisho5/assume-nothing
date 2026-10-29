@@ -62,7 +62,7 @@ func TestCommandNames(t *testing.T) {
 
 func TestInstallsSomething(t *testing.T) {
 	yes := []string{"pip install requests", "npm i -D vite", "brew install ffmpeg", "sudo apt-get install -y jq", "uv add httpx", "go install golang.org/x/tools/gopls@latest", "cargo install ripgrep", "pnpm add zod", "uv pip install rich", "pacman -Syu --noconfirm jq"}
-	no := []string{"npm test", "pip list", "go build ./...", "brew list", "echo install", "npm test -- -i", "echo go get add", "git add -A", "npm run build -- --install"}
+	no := []string{"npm test", "pip list", "go build ./...", "brew list", "echo install", "npm test -- -i", "echo go get add", "git add -A", "npm run build -- --install", "npm run install", "yarn run add-thing", "uv run add.py"}
 	for _, l := range yes {
 		if !InstallsSomething(l) {
 			t.Errorf("InstallsSomething(%q) = false, want true", l)

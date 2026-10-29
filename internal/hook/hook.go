@@ -110,9 +110,17 @@ func bashCommand(in Input) string {
 	return ti.Command
 }
 
-// selfCall matches the agent running this tool's own deep checks, e.g.
-// "/path/scripts/run.sh" deep net  or  assume-nothing-linux-amd64 probe
-var selfCall = regexp.MustCompile(`(assume-nothing[^\s"']*|scripts/run\.sh)["']?\s+(deep|probe|version|help)\b`)
+// selfCall matches a line that is nothing but this tool's own check, e.g.
+//
+//	"/home/me/.claude/plugins/.../assume-nothing/.../scripts/run.sh" deep net
+//	assume-nothing-linux-amd64 probe --json
+//
+// The whole line must be that one command (no ; & | ` $ ( ) < > or newline),
+// and its path must contain "assume-nothing".
+var selfCall = regexp.MustCompile(`^\s*["']?[^;&|` + "`" + `$()<>\n"']*assume-nothing[^;&|` + "`" + `$()<>\n"' ]*["']?\s+(deep|probe|version|help)\b[^;&|` + "`" + `$()<>\n]*$`)
+
+// Clean is a short alias used in messages.
+func Clean(s string) string { return probe.Clean(s, 120) }
 
 func callsSelf(cmd string) bool {
 	return selfCall.MatchString(cmd)
@@ -129,17 +137,24 @@ func PreToolUse(in Input) *Output {
 		if !errors.Is(err, store.ErrNotFound) {
 			fmt.Fprintln(os.Stderr, "assume-nothing: could not read the probe record:", err)
 		}
-		st = fresh(in)
-		snap := render.Snapshot(st, DeepCommand)
-		if serr := save(st); serr != nil {
+		// Check that a record can be saved at all before spending time probing.
+		if serr := save(store.New(in.SessionID, cwdOf(in))); serr != nil {
 			fmt.Fprintln(os.Stderr, "assume-nothing: could not save the probe record:", serr)
 			if Strict() {
-				return deny("assume-nothing: the probe record cannot be saved, and strict mode is on, so tools stay blocked. Fix the plugin data folder or turn strict mode off.\n\n" + snap)
+				return deny("assume-nothing: the probe record cannot be saved, and strict mode is on, so tools stay blocked. Fix the plugin data folder (" + Clean(serr.Error()) + ") or turn strict mode off.")
 			}
 			// Without a record we cannot remember anything between calls, so
 			// blocking could never end. Let the call through quietly; the
 			// session-start snapshot already gave the agent the facts.
 			return nil
+		}
+		st = fresh(in)
+		snap := render.Snapshot(st, DeepCommand)
+		if serr := save(st); serr != nil {
+			fmt.Fprintln(os.Stderr, "assume-nothing: could not save the probe record:", serr)
+			if !Strict() {
+				return nil
+			}
 		}
 		return deny("assume-nothing: this session had no environment probe yet, so one was just run. Read it, then make the same call again.\n\n" + snap)
 	}

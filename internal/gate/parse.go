@@ -351,6 +351,9 @@ var packageManagers = map[string]bool{
 
 var installVerbs = map[string]bool{"install": true, "add": true, "i": true, "get": true, "sync": true}
 
+// runVerbs mean "run something", so later words are not install sub-commands (npm run install).
+var runVerbs = map[string]bool{"run": true, "run-script": true, "exec": true, "x": true, "dlx": true, "test": true, "start": true}
+
 // IsInstall reports whether one command installs software: a package manager
 // whose first or second sub-command is an install verb (npm i, uv pip install,
 // brew install), or pacman -S.
@@ -368,6 +371,9 @@ func IsInstall(c Cmd) bool {
 		}
 		if installVerbs[a] {
 			return true
+		}
+		if runVerbs[a] {
+			return false
 		}
 		seen++
 		if seen == 2 {
