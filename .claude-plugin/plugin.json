@@ -1,7 +1,7 @@
 {
   "name": "assume-nothing",
   "displayName": "Assume Nothing",
-  "version": "0.10.0",
+  "version": "0.11.0",
   "description": "Your agent promised not to assume. Now it can't. Probes the environment before any tool runs, blocks commands that are not installed, and sends back answers about things nothing looked up.",
   "author": {
     "name": "kajisho5",

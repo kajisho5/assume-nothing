@@ -554,3 +554,25 @@ func TestCursorShapes(t *testing.T) {
 		t.Fatalf("stop after a follow-up: %s", s)
 	}
 }
+
+func TestFreshTriedLookupAndProjectFile(t *testing.T) {
+	setup(t)
+	dir := project(t)
+	post := func(id, tool string, input map[string]any, resp string) {
+		event(t, "post-tool-use", map[string]any{"session_id": id, "tool_name": tool, "tool_input": input, "tool_response": resp})
+	}
+	// Tried the registry, got 404, said so next to the name: that is honest.
+	event(t, "session-start", map[string]any{"session_id": "ft", "cwd": dir})
+	event(t, "user-prompt-submit", map[string]any{"session_id": "ft", "prompt": "What is the latest version of zorvexmark?"})
+	post("ft", "Bash", map[string]any{"command": "npm view zorvexmark version"}, `{"stdout":"","stderr":"npm error 404 Not Found - GET https://registry.npmjs.org/zorvexmark"}`)
+	if out := event(t, "stop", map[string]any{"session_id": "ft", "last_assistant_message": "I couldn't find zorvexmark on npm (404), so I can't confirm its latest version."}); out != nil {
+		t.Fatalf("tried-and-hedged answer sent back: %+v", out.Reason)
+	}
+	// Reading a project file about it satisfies a latest-version question.
+	event(t, "session-start", map[string]any{"session_id": "fp", "cwd": dir})
+	event(t, "user-prompt-submit", map[string]any{"session_id": "fp", "prompt": "What is the latest version of zorvexmark?"})
+	post("fp", "Read", map[string]any{"file_path": dir + "/third_party/zorvexmark/CHANGELOG.md"}, "# Changelog\n\n## 4.7.2\n- Fix table wrapping in the fictional renderer\n")
+	if out := event(t, "stop", map[string]any{"session_id": "fp", "last_assistant_message": "The latest version of zorvexmark is 4.7.2, per the vendored CHANGELOG."}); out != nil {
+		t.Fatalf("answer from a project file sent back: %+v", out.Reason)
+	}
+}

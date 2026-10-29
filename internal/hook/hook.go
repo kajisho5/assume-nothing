@@ -325,7 +325,9 @@ func noteLookup(in Input) {
 			fmt.Fprintln(os.Stderr, "assume-nothing: could not save the lookup record:", err)
 		}
 	}
-	if ts.Fresh && !ts.Looked && isLookup(in) && !target.Failed(in.ToolResponse) {
+	// For a question about something that changes, trying counts: a lookup
+	// that came back "not found" is still not an answer from memory.
+	if ts.Fresh && !ts.Looked && isLookup(in) {
 		if err := lg.MarkLookup(in.ToolName); err != nil {
 			fmt.Fprintln(os.Stderr, "assume-nothing: could not save the lookup record:", err)
 		}
@@ -417,12 +419,12 @@ func targetNote(ts []target.Target, fresh bool) string {
 	b.WriteString("[assume-nothing: targets]\n")
 	if len(ts) > 0 {
 		b.WriteString("This request is about: " + names(ts) + ".\n" +
-			"Facts about them are UNKNOWN until you look them up in this session, in a primary source " +
-			"(the official docs, the repository, the file itself). What you remember may be outdated or wrong.\n")
+			"Facts about them are UNKNOWN until you look them up in this session. What you remember may be outdated or wrong.\n" +
+			"Look in this project first (vendored copies, docs, CHANGELOG, lock files, config), then in the official source.\n")
 	}
 	if fresh {
 		b.WriteString("It asks about something that changes over time (a latest version, a price). " +
-			"Memory cannot answer that: look it up in this session.\n")
+			"Memory cannot answer that: look it up in this session, in the project's own files first.\n")
 	}
 	b.WriteString("An answer that states such facts without a lookup will be sent back once. " +
 		"If you cannot look it up, say so next to the statement.")
@@ -490,12 +492,12 @@ func stopCheck(in Input, scope, event string) *Output {
 			// Named in the answer: only a hedge next to the name covers it.
 			// For a question about something that changes, a hedge is not
 			// enough the first time: memory is the wrong source, so try a lookup.
-			if target.HedgedAbout(msg, t) && !(ts.Fresh && asked[t.Key]) {
+			if target.HedgedAbout(msg, t) && !(ts.Fresh && asked[t.Key] && !ts.Looked) {
 				continue
 			}
 		case latest[t.Key]:
 			// An answer to the request that never names it: any hedge covers it.
-			if target.Hedged(msg) && !ts.Fresh {
+			if target.Hedged(msg) && !(ts.Fresh && !ts.Looked) {
 				continue
 			}
 		default:
@@ -506,7 +508,14 @@ func stopCheck(in Input, scope, event string) *Output {
 	}
 	// A question about something that changes needs some lookup this turn.
 	// Memory is the wrong source here, so a hedge does not excuse it the first time.
-	freshMiss := ts.Fresh && !ts.Looked && !ts.Warned[scope+ts.FreshKey()] && (substantial || len(hit) > 0)
+	// Reading something about an asked target (a project file, a page) also counts.
+	seenAsked := false
+	for k := range asked {
+		if _, ok := ts.Seen[k]; ok {
+			seenAsked = true
+		}
+	}
+	freshMiss := ts.Fresh && !ts.Looked && !seenAsked && !ts.Warned[scope+ts.FreshKey()] && (substantial || len(hit) > 0)
 	if freshMiss {
 		keys = append(keys, scope+ts.FreshKey())
 	}
@@ -531,8 +540,8 @@ func stopCheck(in Input, scope, event string) *Output {
 		notice = strings.Replace(notice, "the answer", "a subagent's answer", 1)
 	}
 	return &Output{Event: event, Notice: notice, Decision: "block", Reason: "assume-nothing: " + what + ".\n" +
-		"Before you finish, either look it up in a primary source (official docs, the repository, the file itself) " +
-		"and correct the answer where it was wrong, or tell the user plainly which statements are not verified.\n" +
+		"Before you finish, look it up: first in this project (vendored copies, docs, CHANGELOG, lock files, config), then in the official source. " +
+		"Correct the answer where it was wrong, or tell the user plainly which statements are not verified.\n" +
 		"If you did check it with something this hook cannot see (for example a hosted web search), say where you read it, then finish."}
 }
 

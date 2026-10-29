@@ -77,6 +77,18 @@ What it picks up as a name: `owner/repo`, URLs, `hyphenated-names` and `dotted.n
 
 Read it honestly: it checks that something was **looked at**, not that the answer is **right**. It is a nudge with teeth, not a fact checker. In live runs the note alone was usually enough: the agent searched first, or said up front that it was answering from memory.
 
+## Optional: text check
+
+The lookup check knows whether a named thing was looked at. It does not read what the answer claims about things the request never named. For that, add a text check: a Claude Code prompt hook in which a small model reads each final answer and flags concrete facts (versions, prices, defaults, flags, API names) stated as certain with no source.
+
+```sh
+assume-nothing install-text-check          # this project (.claude/settings.json)
+assume-nothing install-text-check --user   # every project (~/.claude/settings.json)
+assume-nothing install-text-check --remove
+```
+
+It is off unless you add it, because it costs one small model call per answer. In a live run it caught "the latest Node.js LTS is 24" (the official page listed 26); the agent looked it up and corrected itself. The command is the same binary the plugin ships (the probe's "Deeper checks" line shows its path, with `install-text-check` in place of `deep`).
+
 ## Benchmark
 
 Same tasks, same model, with and without `assume-nothing`. Each task is a small fictional project with a trap: the project suggests a tool that is not installed (a `pnpm` lock file but only `npm`; a Makefile but no `make`; a README that says `python` but only `python3`; a media question without `ffprobe`). 4 tasks × 3 runs per condition, Claude Code in headless mode, 2026-10-29.
