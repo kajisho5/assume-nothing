@@ -91,31 +91,32 @@ It is off unless you add it, because it costs one small model call per answer. I
 
 ## Benchmark
 
-Same tasks, same model, with and without `assume-nothing`. Each task is a small fictional project with a trap: the project suggests a tool that is not installed (a `pnpm` lock file but only `npm`; a Makefile but no `make`; a README that says `python` but only `python3`; a media question without `ffprobe`). 4 tasks × 3 runs per condition, Claude Code in headless mode, 2026-10-29.
+Same tasks, same model, with and without assume-nothing. Every task is a small fictional project. 10 runs per task and condition, Claude Code in headless mode, each run in a clean config with no other plugins, 2026-10-30.
 
-| Model | Probe | Success | Failed commands on a missing tool (per task) | Tool calls (per task) | Seconds (per task) |
-| --- | --- | --- | --- | --- | --- |
-| Claude Haiku | without | 12/12 | 1.3 | 4.2 | 14 |
-| Claude Haiku | **with** | 12/12 | **0.1** | **3.2** | **12** |
-| Claude Sonnet | without | 12/12 | 0.8 | 3.1 | 14 |
-| Claude Sonnet | **with** | 12/12 | **0.0** | **2.8** | **11** |
+**Tools that are not there.** Each project suggests a tool that is not installed (a `pnpm` lock file but only `npm`; a Makefile but no `make`; a README that says `python` but only `python3`; a media question without `ffprobe`).
 
-Re-run on 2026-10-30 (v0.8) with Claude Haiku, in a clean config with no other plugins: failed commands on a missing tool 0.8 per task without, 0.0 with; tool calls 3.9 and 3.3.
+| Model | Plugin | Success | Failed commands on a missing tool (per task) | Tool calls (per task) |
+| --- | --- | --- | --- | --- |
+| Claude Haiku | without | 40/40 | 0.9 | 3.9 |
+| Claude Haiku | **with** | 40/40 | **0.0** | 3.5 |
+| Claude Sonnet | without | 40/40 | 0.6 | 2.8 |
+| Claude Sonnet | **with** | 40/40 | **0.0** | 2.9 |
 
-Read it honestly: every run succeeded either way. What changes is how the agent gets there: with the probe it stops trying commands that are not there, so it makes fewer calls and finishes sooner, and the effect is larger on the smaller model. The sample is small and the tasks were built to contain traps, so do not expect the same numbers on everyday work. Per-task numbers, the raw results and the script are in [`evals/`](evals/); run `python3 evals/run.py --plugin-dir <plugin> --model haiku` to reproduce.
+**Facts memory cannot know.** Three questions about fictional tools whose answers are only in the project's own docs (a vendored README, a CHANGELOG, a docs page). The prompt does not say where to look.
 
-### Lookup check
+| Model | Plugin | Right | Wrong fact | No answer |
+| --- | --- | --- | --- | --- |
+| Claude Haiku | without | 24/30 | 2 | 4 |
+| Claude Haiku | **with** | **30/30** | 0 | 0 |
+| Claude Sonnet | without | 20/30 | 1 | 9 |
+| Claude Sonnet | **with** | **30/30** | 0 | 0 |
 
-Three questions about fictional tools whose answers are only in the project's own docs (a vendored README, a CHANGELOG, a docs page). The prompt does not say where to look. 3 runs per question and condition, 2026-10-30.
+Read it honestly:
 
-| Model | Plugin | Right | Wrong fact | No answer | Sent back |
-| --- | --- | --- | --- | --- | --- |
-| Claude Haiku | without | 8/9 | 0 | 1 | 0 |
-| Claude Haiku | **with** | 8/9 | 0 | 1 | 3 |
-| Claude Sonnet | without | 7/9 | 0 | 2 | 0 |
-| Claude Sonnet | **with** | **9/9** | 0 | 0 | 3 |
-
-Read it honestly: with tools at hand, neither model stated a wrong fact in these runs; they looked in the project or said they did not know. The difference is on the hardest question, "what is the latest version of zorvexmark?": the registries return 404, and without the plugin the agent often stopped there (3 of 6 right). With it, the answer was sent back once, the agent looked further, found the vendored CHANGELOG, and got it right (6 of 6). The cost was more tool calls and time on that question. In one Haiku run with the plugin, the agent saw that the tool was not installed and asked for its help output instead of reading the docs page. The sample is small.
+- Every task succeeded either way in the first suite. What changes is the path: with the probe, the agent stops trying commands that are not there.
+- In the second suite, most misses without the plugin were not wrong facts but giving up: on "what is the latest version of zorvexmark?" the public registries return 404, and the agent often stopped there. With the plugin it was told to look in the project first, found the vendored CHANGELOG, and answered right. The cost was a few more tool calls.
+- A version of the note that said only "look it up" made things worse (v0.10: Haiku 21/30 with the plugin): it sent the agent to the internet first. v0.11 says "this project first". The numbers above are v0.11.
+- The tasks were built to contain traps, so do not expect the same numbers on everyday work. Per-task numbers, the raw results and the script are in [`evals/`](evals/); `python3 evals/run.py --plugin-dir <plugin> --suite lookup --model haiku --runs 10` reproduces them.
 
 ## Install
 
