@@ -32,6 +32,9 @@ func setup(t *testing.T) {
 	t.Setenv("ASSUME_NOTHING_STRICT", "")
 	t.Setenv("CLAUDE_PLUGIN_OPTION_STRICT", "")
 	t.Setenv("ASSUME_NOTHING_LANG", "en") // most tests check the English text
+	old := recheck
+	recheck = func([]store.Fact) []store.Fact { return nil }
+	t.Cleanup(func() { recheck = old })
 }
 
 func event(t *testing.T, name string, in map[string]any) *Output {
@@ -683,5 +686,27 @@ func TestLookupModes(t *testing.T) {
 	event(t, "user-prompt-submit", map[string]any{"session_id": "lm", "cwd": dir, "prompt": "what is nebula-dock"})
 	if out := event(t, "stop", map[string]any{"session_id": "lm", "cwd": dir, "last_assistant_message": "nebula-dock docks things."}); out == nil {
 		t.Fatal("the environment variable should win over the file")
+	}
+}
+
+func TestTimedOutLanguagesRecheckedOnce(t *testing.T) {
+	setup(t)
+	dir := project(t)
+	calls := 0
+	recheck = func(fs []store.Fact) []store.Fact {
+		calls++
+		return []store.Fact{{Key: "lang.go", Status: store.OK, Value: "go: go version go1.99.0 fictional", How: "go version"}}
+	}
+	event(t, "session-start", map[string]any{"session_id": "rc", "cwd": dir})
+	read := map[string]any{"session_id": "rc", "cwd": dir, "tool_name": "Read", "tool_input": map[string]any{}}
+	out := event(t, "pre-tool-use", read)
+	if out == nil || !strings.Contains(out.HookSpecificOutput.AdditionalContext, "go1.99.0") {
+		t.Fatalf("recheck result not reported: %+v", out)
+	}
+	if out := event(t, "pre-tool-use", read); out != nil {
+		t.Fatalf("rechecked twice: %+v", out)
+	}
+	if calls != 1 {
+		t.Fatalf("recheck ran %d times", calls)
 	}
 }

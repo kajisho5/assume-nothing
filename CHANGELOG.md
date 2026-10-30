@@ -1,5 +1,9 @@
 # Changelog
 
+## [0.13.1] - 2026-10-30
+
+- Release fix: v0.13.0 was merged but not published, because the hook tests ran the new language re-check on a slow build machine and saw its note. Tests now replace the re-check with a stand-in, and it has its own test.
+
 ## [0.13.0] - 2026-10-30
 
 - Two layers, said plainly. The core (probe, command gate, version check) is exact and always on. The lookup check is a heuristic: `"lookup": "send-back"` (default), `"note"` (tell the agent what the request is about, never send back) or `"off"` in `.assume-nothing.json`, or `ASSUME_NOTHING_LOOKUP`.
