@@ -195,7 +195,7 @@ Then start a new session. Codex, Gemini, Cursor and OpenCode support is new: the
 | --- | --- |
 | Session start, resume, clear, compact | Probe the environment (2-second budget), compare installed versions with what the project asks for, save it, hand it to the agent |
 | Before any tool call | If this session has no probe: run one and stop the call, with the probe attached |
-| Before a shell command | If a command name is not on PATH: stop it once, list what is installed. The same command a second time goes through (it may be an alias, a shell function, or on a PATH the hook cannot see). Commands after an install in the same line are not checked |
+| Before a shell command | If a command name is not on PATH: stop it once, list what is installed. The same command a second time goes through (it may be an alias, a shell function, or on a PATH the hook cannot see). Commands after an install in the same line are not checked, unless the install is global and puts them in a folder that is not on PATH (`npm i -g pnpm && pnpm …`): then it is stopped once, with the full path to use |
 | Working folder changed | Re-check the folder and tell the agent |
 | After an install command (`pip install`, `npm i`, `brew install`, …) | Re-check tools and report what changed |
 | A request comes in | Note the things it names and tell the agent they are UNKNOWN until looked up. If the session has no probe yet (the plugin arrived after the session started), probe here |

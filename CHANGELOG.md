@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.14.0] - 2026-10-30
+
+- Install, then use, in one line: `npm install -g pnpm && pnpm install` used to go through, and then failed with "pnpm: command not found" because npm put pnpm in a folder that is not on PATH. Seen in the benchmark. Now, when a global install (`npm -g`, `pnpm -g`, `bun -g`, `pip --user`, `cargo install`, `go install`) is followed by a command that is not installed, and the install's folder is not on PATH, the line is stopped once with the folder and the full path to use. Running it again lets it through. It only reports what it can show: if the folder cannot be found, nothing is said.
+- Demo: the probe lines match the current output.
+
 ## [0.13.1] - 2026-10-30
 
 - Release fix: v0.13.0 was merged but not published, because the hook tests ran the new language re-check on a slow build machine and saw its note. Tests now replace the re-check with a stand-in, and it has its own test.
