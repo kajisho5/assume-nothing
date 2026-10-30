@@ -32,3 +32,19 @@ jobs:
       - name: End-to-end hook check
         shell: bash
         run: scripts/smoke.sh
+      - name: PowerShell setup script parses
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $errs = $null
+          [System.Management.Automation.Language.Parser]::ParseFile("$PWD/scripts/setup.ps1", [ref]$null, [ref]$errs) | Out-Null
+          if ($errs) { $errs; exit 1 }
+      - name: PowerShell setup installs and removes the Cursor hooks
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          ./scripts/setup.ps1 cursor
+          $cfg = Join-Path $HOME ".cursor/hooks.json"
+          if (-not (Select-String -Path $cfg -Pattern "--agent cursor" -Quiet)) { Get-Content $cfg; exit 1 }
+          ./scripts/setup.ps1 cursor -Remove
+          if (Select-String -Path $cfg -Pattern "--agent cursor" -Quiet) { Get-Content $cfg; exit 1 }

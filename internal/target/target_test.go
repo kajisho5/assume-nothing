@@ -260,3 +260,11 @@ func TestEnglishNames(t *testing.T) {
 		}
 	}
 }
+
+func TestJapaneseFailures(t *testing.T) {
+	for _, s := range []string{"お探しのページは見つかりませんでした。URLをご確認ください。", "このページへのアクセスが拒否されました。管理者に連絡してください。"} {
+		if !Failed([]byte(s)) {
+			t.Errorf("not seen as failed: %q", s)
+		}
+	}
+}

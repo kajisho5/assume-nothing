@@ -135,7 +135,7 @@ func Fresh(prompt string) bool {
 }
 
 // failure matches tool output that is an error rather than an answer.
-var failure = regexp.MustCompile(`(?i)(https?[^\n]{0,40}\b(?:40[0-9]|429|5[0-9][0-9])\b|status(?:[ _]?code)?["':\s=]{0,4}(?:40[0-9]|429|5[0-9][0-9])\b|\b(?:40[0-9]|429|5[0-9][0-9])\s+(?:forbidden|not found|unauthorized|too many|internal server|bad gateway|service unavailable|gateway time)|\berror[:\s]+(?:40[0-9]|429|5[0-9][0-9])\b|forbidden|not found|rate limit|too many requests|access denied|failed to fetch|request failed|unable to fetch|could not (?:resolve|connect)|connection refused|timed out|permission denied|no results|enoent|no such file|is not reachable|blocked)`)
+var failure = regexp.MustCompile(`(?i)(https?[^\n]{0,40}\b(?:40[0-9]|429|5[0-9][0-9])\b|status(?:[ _]?code)?["':\s=]{0,4}(?:40[0-9]|429|5[0-9][0-9])\b|\b(?:40[0-9]|429|5[0-9][0-9])\s+(?:forbidden|not found|unauthorized|too many|internal server|bad gateway|service unavailable|gateway time)|\berror[:\s]+(?:40[0-9]|429|5[0-9][0-9])\b|forbidden|not found|rate limit|too many requests|access denied|failed to fetch|request failed|unable to fetch|could not (?:resolve|connect)|connection refused|timed out|permission denied|no results|enoent|no such file|is not reachable|blocked|見つかりません|存在しません|アクセスが拒否|アクセスできません|権限がありません|エラーが発生|接続できません|タイムアウト|一致する情報は見つかりません)`)
 
 // Failed reports whether a tool's output is an error, an empty answer, or a
 // refusal, so the call does not count as having looked anything up.

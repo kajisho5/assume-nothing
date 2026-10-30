@@ -60,5 +60,9 @@ and the machine has 1.24, so a build silently downloaded a toolchain.
   concrete claims (versions, prices, defaults) stated as certain (v0.11).
 - [x] Cursor and OpenCode adapters (v0.10, experimental; OpenCode without the answer check).
 - [x] Hooks never block on Windows without Git Bash (`onFailure: continue`, v0.10).
-- Live runs in Codex CLI and Gemini CLI (needs accounts for those tools).
+- [x] Two layers: the exact core and the heuristic lookup check, with a `note` mode (v0.13).
+- [x] Re-check languages that timed out on a cold start (v0.13).
+- [x] PowerShell installer for Windows without Git Bash, for Cursor and OpenCode (v0.13).
+- Live runs in Codex CLI, Gemini CLI, Cursor and OpenCode (needs accounts for those tools).
+- A lookup check that knows aliases (イーロンマスク = Elon Musk) without relying on "the next search after the request".
 - Claude Code on Windows without Git Bash running the hooks (not only skipping them): needs one command line that both sh and PowerShell run, or a per-OS hooks file.

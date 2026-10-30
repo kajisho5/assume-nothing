@@ -49,13 +49,17 @@ var Langs = []Lang{
 	{"lang.php", []string{"php"}, []string{"--version"}},
 	{"lang.deno", []string{"deno"}, []string{"--version"}},
 	{"lang.bun", []string{"bun"}, []string{"--version"}},
+	{"lang.kotlin", []string{"kotlinc", "kotlin"}, []string{"-version"}},
+	{"lang.dart", []string{"dart"}, []string{"--version"}},
+	{"lang.zig", []string{"zig"}, []string{"version"}},
+	{"lang.elixir", []string{"elixir"}, []string{"--short-version"}},
 }
 
 // PackageManagers are only checked for presence (fast).
 var PackageManagers = []string{"pip3", "pip", "uv", "npm", "pnpm", "yarn", "cargo", "brew", "apt-get", "dnf", "pacman", "winget", "choco", "scoop"}
 
 // Tools are common command-line tools checked for presence.
-var Tools = []string{"git", "gh", "docker", "make", "curl", "wget", "jq", "rg", "ffmpeg"}
+var Tools = []string{"git", "gh", "docker", "make", "cmake", "gcc", "clang", "curl", "wget", "jq", "rg", "ffmpeg"}
 
 // Markers map a file in the working folder to the kind of project it means.
 var Markers = []struct{ File, Kind string }{
@@ -105,7 +109,11 @@ func Clean(s string, max int) string {
 
 // firstLine runs a command and returns the first non-empty line of its output.
 func firstLine(ctx context.Context, name string, args ...string) (string, error) {
-	c, cancel := context.WithTimeout(ctx, cmdTimeout)
+	return firstLineWithin(ctx, cmdTimeout, name, args...)
+}
+
+func firstLineWithin(ctx context.Context, limit time.Duration, name string, args ...string) (string, error) {
+	c, cancel := context.WithTimeout(ctx, limit)
 	defer cancel()
 	cmd := exec.CommandContext(c, name, args...)
 	cmd.Stdin = nil
@@ -211,13 +219,15 @@ func Command(name string) store.Fact {
 	return store.Fact{Key: key, Status: store.Missing, How: "PATH lookup"}
 }
 
-func langFact(ctx context.Context, l Lang) store.Fact {
+func langFact(ctx context.Context, l Lang) store.Fact { return langFactWithin(ctx, l, cmdTimeout) }
+
+func langFactWithin(ctx context.Context, l Lang, limit time.Duration) store.Fact {
 	name, _, ok := lookPath(l.Names...)
 	if !ok {
 		return store.Fact{Key: l.Key, Status: store.Missing, How: "PATH lookup: " + strings.Join(l.Names, ", ")}
 	}
 	how := name + " " + strings.Join(l.Args, " ")
-	v, err := firstLine(ctx, name, l.Args...)
+	v, err := firstLineWithin(ctx, limit, name, l.Args...)
 	if v == "" {
 		why := "found on PATH but version check failed"
 		if err != nil && ctx.Err() == nil {
@@ -244,7 +254,11 @@ func presence(prefix string, names []string) []store.Fact {
 
 // Config is the optional per-project file .assume-nothing.json.
 type Config struct {
-	Tools []string `json:"tools"`
+	Tools []string `json:"tools"` // extra tools to check at start
+	Skip  []string `json:"skip"`  // languages, tools or package managers to leave out
+	// Lookup sets the lookup check: "send-back" (default), "note" (only tell
+	// the agent what the request is about), or "off".
+	Lookup string `json:"lookup"`
 }
 
 var toolName = regexp.MustCompile(`^[A-Za-z0-9._+-]{1,64}$`)
@@ -264,7 +278,85 @@ func LoadConfig(cwd string) Config {
 		}
 	}
 	c.Tools = kept
+	skip := c.Skip[:0]
+	for _, t := range c.Skip {
+		if toolName.MatchString(t) {
+			skip = append(skip, t)
+		}
+	}
+	c.Skip = skip
 	return c
+}
+
+// Skipped drops the facts about names the config asks to leave out.
+func Skipped(fs []store.Fact, skip []string) []store.Fact {
+	if len(skip) == 0 {
+		return fs
+	}
+	drop := map[string]bool{}
+	for _, s := range skip {
+		drop[strings.ToLower(s)] = true
+	}
+	out := fs[:0]
+	for _, f := range fs {
+		if i := strings.IndexByte(f.Key, '.'); i > 0 {
+			switch f.Key[:i] {
+			case "lang", "tool", "pm", "cmd":
+				if drop[strings.ToLower(f.Key[i+1:])] {
+					continue
+				}
+			}
+		}
+		out = append(out, f)
+	}
+	return out
+}
+
+// RetryBudget is the time allowed to check again the languages whose version
+// check ran out of time at session start (a cold machine can be slow).
+const RetryBudget = 6 * time.Second
+
+// TimedOut reports whether a language fact is unknown only because its
+// version check ran out of time.
+func TimedOut(f store.Fact) bool {
+	return strings.HasPrefix(f.Key, "lang.") && f.Status == store.Unknown &&
+		(strings.Contains(f.Why, "killed") || strings.Contains(f.Why, "deadline") || strings.Contains(f.Why, "timed out"))
+}
+
+// RetryLangs checks again, in parallel and with more time, the languages that
+// timed out. It returns the new facts for those languages only.
+func RetryLangs(facts []store.Fact) []store.Fact {
+	want := map[string]bool{}
+	for _, f := range facts {
+		if TimedOut(f) {
+			want[f.Key] = true
+		}
+	}
+	if len(want) == 0 {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), RetryBudget)
+	defer cancel()
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	var out []store.Fact
+	for _, l := range Langs {
+		if !want[l.Key] {
+			continue
+		}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			safe(func() {
+				f := langFactWithin(ctx, l, RetryBudget)
+				mu.Lock()
+				out = append(out, f)
+				mu.Unlock()
+			})
+		}()
+	}
+	wg.Wait()
+	return out
 }
 
 // ToolFacts checks languages, package managers and tools.
@@ -516,6 +608,7 @@ func Environment(cwd string) []store.Fact {
 	wg.Wait()
 	out := append(append(append([]store.Fact{}, sys...), tgt...), tools...)
 	safe(func() { out = append(out, VersionFacts(cwd, tools)...) })
+	out = Skipped(out, cfg.Skip)
 	out = append(out, store.Fact{Key: "net", Status: store.Unknown, Why: "not checked at start (run the deep net probe)"})
 	return out
 }
