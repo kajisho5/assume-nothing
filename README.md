@@ -203,6 +203,10 @@ Same tasks, same model, with and without assume-nothing. Every task is a small f
 | Claude Haiku | **with** | 40/40 | **0.0** | 3.5 |
 | Claude Sonnet | without | 40/40 | 0.7 | 2.9 |
 | Claude Sonnet | **with** | 40/40 | **0.0** | 2.8 |
+| Claude Opus | without | 40/40 | 0.7 | 3.1 |
+| Claude Opus | **with** | 40/40 | **0.0** | 2.7 |
+| Claude Fable | without | 40/40 | 0.6 | 4.0 |
+| Claude Fable | **with** | 40/40 | **0.0** | 4.5 |
 
 **Facts memory cannot know.** Three questions about fictional tools whose answers are only in the project's own docs (a vendored README, a CHANGELOG, a docs page). The prompt does not say where to look.
 
@@ -212,10 +216,15 @@ Same tasks, same model, with and without assume-nothing. Every task is a small f
 | Claude Haiku | **with** | **29/30** | 0 | 1 |
 | Claude Sonnet | without | 19/30 | 3 | 8 |
 | Claude Sonnet | **with** | **30/30** | 0 | 0 |
+| Claude Opus | without | 27/30 | 0 | 3 |
+| Claude Opus | **with** | **30/30** | 0 | 0 |
+| Claude Fable | without | 30/30 | 0 | 0 |
+| Claude Fable | **with** | 30/30 | 0 | 0 |
 
 Read it honestly:
 
 - Every task succeeded either way in the first suite. What changes is the path: with the probe, the agent stops trying commands that are not there.
+- Claude Fable answered every lookup question right without the plugin, so there the plugin added nothing. In the first suite it still stopped Fable's failed commands (0.6 → 0), but Fable made more tool calls with it (4.0 → 4.5), mostly on the pnpm task.
 - The one Haiku miss with the plugin was an honest "I could not confirm the flag", not a wrong fact. Without the plugin Sonnet stated a wrong flag 3 times out of 10.
 - In the second suite, most misses without the plugin were not wrong facts but giving up: on "what is the latest version of zorvexmark?" the public registries return 404, and the agent often stopped there. With the plugin it was told to look in the project first, found the vendored CHANGELOG, and answered right. The cost was a few more tool calls.
 - A version of the note that said only "look it up" made things worse (v0.10: Haiku 21/30 with the plugin): it sent the agent to the internet first. v0.11 says "this project first".
