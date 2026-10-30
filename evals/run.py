@@ -167,7 +167,66 @@ def restricted_path(root: Path) -> str:
     return str(bindir)
 
 
-def run_one(t, with_probe: bool, plugin_dir: str, model: str, run_id: int):
+REASK = "Are you sure? Please check and answer the same question again."
+
+
+def call(cmd, cwd, env):
+    """Run one claude -p call and read its stream: tool calls, failures, the
+    reply, the session id, cost and tokens (summed over every model it used)."""
+    try:
+        p = subprocess.run(cmd, cwd=cwd, env=env, capture_output=True, text=True, timeout=600)
+        lines = p.stdout.splitlines()
+    except subprocess.TimeoutExpired as e:
+        lines = (e.stdout or b"").decode(errors="replace").splitlines() if isinstance(e.stdout, bytes) else (e.stdout or "").splitlines()
+    st = {"lines": lines, "tool_calls": 0, "failed_missing": 0, "hook_blocks": 0, "turns": 0, "sent_back": 0,
+          "cost": None, "reply": "", "plugins": None, "session": None,
+          "tok_in": 0, "tok_out": 0, "tok_cache_read": 0, "tok_cache_write": 0}
+    for line in lines:
+        try:
+            ev = json.loads(line)
+        except ValueError:
+            continue
+        if ev.get("session_id"):
+            st["session"] = ev["session_id"]
+        if ev.get("type") == "system" and ev.get("subtype") == "init":
+            st["plugins"] = sorted(p.get("name", "") for p in ev.get("plugins", []) if p.get("path") != "builtin")
+        if ev.get("type") == "assistant":
+            for c in ev.get("message", {}).get("content", []):
+                if c.get("type") == "tool_use":
+                    st["tool_calls"] += 1
+        if ev.get("type") == "user":
+            for c in ev.get("message", {}).get("content", []):
+                if c.get("type") != "tool_result":
+                    continue
+                text = json.dumps(c.get("content"))
+                if "assume-nothing" in text and c.get("is_error"):
+                    st["hook_blocks"] += 1
+                elif c.get("is_error") and NOT_FOUND.search(text):
+                    # a real command that failed because a tool is missing
+                    st["failed_missing"] += 1
+        if ev.get("type") == "result":
+            st["turns"] = ev.get("num_turns", 0)
+            st["cost"] = ev.get("total_cost_usd")
+            st["reply"] = ev.get("result") or ""
+            mu = ev.get("modelUsage") or {}
+            if mu:
+                for u in mu.values():
+                    st["tok_in"] += u.get("inputTokens", 0)
+                    st["tok_out"] += u.get("outputTokens", 0)
+                    st["tok_cache_read"] += u.get("cacheReadInputTokens", 0)
+                    st["tok_cache_write"] += u.get("cacheCreationInputTokens", 0)
+            else:
+                u = ev.get("usage") or {}
+                st["tok_in"] += u.get("input_tokens", 0)
+                st["tok_out"] += u.get("output_tokens", 0)
+                st["tok_cache_read"] += u.get("cache_read_input_tokens", 0)
+                st["tok_cache_write"] += u.get("cache_creation_input_tokens", 0)
+        if ev.get("type") == "system" and ev.get("subtype") == "informational" and "sent the answer back once" in line:
+            st["sent_back"] += 1
+    return st
+
+
+def run_one(t, with_probe: bool, plugin_dir: str, model: str, run_id: int, reask: int = 0):
     work = Path(tempfile.mkdtemp(prefix="an-eval-"))
     proj = work / t.__name__.replace("_", "-")
     proj.mkdir()
@@ -199,53 +258,40 @@ def run_one(t, with_probe: bool, plugin_dir: str, model: str, run_id: int):
     else:
         env["ASSUME_NOTHING"] = "off"
     started = time.time()
-    try:
-        p = subprocess.run(cmd, cwd=proj, env=env, capture_output=True, text=True, timeout=600)
-        lines = p.stdout.splitlines()
-    except subprocess.TimeoutExpired as e:
-        lines = (e.stdout or b"").decode(errors="replace").splitlines() if isinstance(e.stdout, bytes) else (e.stdout or "").splitlines()
-    tool_calls = failed_missing = hook_blocks = turns = sent_back = 0
-    cost = None
-    reply = ""
-    loaded = None
-    for line in lines:
-        try:
-            ev = json.loads(line)
-        except ValueError:
-            continue
-        if ev.get("type") == "system" and ev.get("subtype") == "init":
-            loaded = sorted(p.get("name", "") for p in ev.get("plugins", []) if p.get("path") != "builtin")
-        if ev.get("type") == "assistant":
-            for c in ev.get("message", {}).get("content", []):
-                if c.get("type") == "tool_use":
-                    tool_calls += 1
-        if ev.get("type") == "user":
-            for c in ev.get("message", {}).get("content", []):
-                if c.get("type") != "tool_result":
-                    continue
-                text = json.dumps(c.get("content"))
-                if "assume-nothing" in text and c.get("is_error"):
-                    hook_blocks += 1
-                elif c.get("is_error") and NOT_FOUND.search(text):
-                    # a real command that failed because a tool is missing
-                    failed_missing += 1
-        if ev.get("type") == "result":
-            turns = ev.get("num_turns", 0)
-            cost = ev.get("total_cost_usd")
-            reply = ev.get("result") or ""
-        if ev.get("type") == "system" and ev.get("subtype") == "informational" and "sent the answer back once" in line:
-            sent_back += 1
-    ok = check(reply)
-    # A wrong fact: the reply states a value of the asked kind, and not the right one.
-    wrong = bool(fact) and not ok and bool(fact.search(reply))
+    st = call(cmd, proj, env)
+    lines = st["lines"]
+    ok = check(st["reply"])
+    first_right = ok
+    first_wrong = bool(fact) and not ok and bool(fact.search(st["reply"]))
+    asks = 1
+    # Re-ask: when the answer is not right, ask again in the same session, the
+    # way a user who doubts it would, without saying where to look. Tokens and
+    # cost add up over every ask, so "to a right answer" is measured, not estimated.
+    while not ok and asks <= reask and st["session"]:
+        again = ["claude", "-p", REASK, "--resume", st["session"]] + cmd[3:]
+        more = call(again, proj, env)
+        lines += more["lines"]
+        for k in ("tool_calls", "failed_missing", "hook_blocks", "turns", "sent_back", "cost",
+                  "tok_in", "tok_out", "tok_cache_read", "tok_cache_write"):
+            st[k] = (st[k] or 0) + (more[k] or 0)
+        st["reply"], st["session"] = more["reply"], more["session"] or st["session"]
+        asks += 1
+        ok = check(st["reply"])
+    tool_calls, failed_missing, hook_blocks, turns, sent_back = (st[k] for k in ("tool_calls", "failed_missing", "hook_blocks", "turns", "sent_back"))
+    cost, reply, loaded = st["cost"], st["reply"], st["plugins"]
+    # A wrong fact: the first reply states a value of the asked kind, and not the right one.
+    wrong = first_wrong
     tdir = HERE / "results" / "transcripts"
     tdir.mkdir(parents=True, exist_ok=True)
     (tdir / f"{t.__name__}-{'with' if with_probe else 'without'}-{run_id}.jsonl").write_text("\n".join(lines))
     res = {
-        "task": t.__name__, "with_probe": with_probe, "run": run_id, "success": ok,
+        "task": t.__name__, "with_probe": with_probe, "run": run_id, "success": first_right, "right_after_reask": ok,
         "tool_calls": tool_calls, "failed_on_missing_tool": failed_missing,
         "hook_blocks": hook_blocks, "turns": turns, "seconds": round(time.time() - started, 1),
         "cost_usd": cost, "wrong_fact": wrong, "sent_back": sent_back, "reply": reply[:300], "plugins": loaded,
+        "asks": asks,
+        "tokens_in": st["tok_in"], "tokens_out": st["tok_out"],
+        "tokens_cache_read": st["tok_cache_read"], "tokens_cache_write": st["tok_cache_write"],
     }
     shutil.rmtree(work, ignore_errors=True)
     return res
@@ -259,14 +305,18 @@ def main():
     ap.add_argument("--jobs", type=int, default=4)
     ap.add_argument("--only", default="")
     ap.add_argument("--suite", choices=["env", "lookup"], default="env")
+    ap.add_argument("--reask", type=int, default=None,
+                    help="lookup suite: ask again up to N times while the answer is not right (default 2; env: 0)")
     a = ap.parse_args()
+    if a.reask is None:
+        a.reask = 2 if a.suite == "lookup" else 0
     plugin_dir = str(Path(a.plugin_dir).resolve())
     pool = LOOKUP if a.suite == "lookup" else TASKS
     tasks = [t for t in pool if not a.only or t.__name__ in a.only.split(",")]
     jobs = [(t, wp, r) for t in tasks for wp in (False, True) for r in range(a.runs)]
     results = []
     with cf.ThreadPoolExecutor(a.jobs) as ex:
-        futs = [ex.submit(run_one, t, wp, plugin_dir, a.model, r) for t, wp, r in jobs]
+        futs = [ex.submit(run_one, t, wp, plugin_dir, a.model, r, a.reask) for t, wp, r in jobs]
         for f in cf.as_completed(futs):
             r = f.result()
             results.append(r)
@@ -278,17 +328,26 @@ def main():
     print(lookup_table(results, a.model, a.runs) if a.suite == "lookup" else table(results, a.model, a.runs))
 
 
+def tokens(r):
+    return r.get("tokens_in", 0) + r.get("tokens_out", 0) + r.get("tokens_cache_read", 0) + r.get("tokens_cache_write", 0)
+
+
 def lookup_table(results, model, runs):
-    lines = [f"Model: {model}, {runs} runs per task and condition.", "",
-             "| Task | Plugin | Right | Wrong fact | No answer | Sent back | Tool calls | Seconds |",
-             "| --- | --- | --- | --- | --- | --- | --- | --- |"]
+    lines = [f"Model: {model}, {runs} runs per task and condition. Not right at first: asked again in the same session.", "",
+             "| Task | Plugin | Right | Wrong fact | No answer | Right after re-asks | Asks | Tokens per run | Tokens per right answer | Cost per right answer | Sent back |",
+             "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |"]
     def row(name, rows, wp):
         ok = sum(r["success"] for r in rows)
         wrong = sum(r["wrong_fact"] for r in rows)
         none = len(rows) - ok - wrong
-        avg = lambda k: sum(r[k] for r in rows) / len(rows)
-        lines.append(f"| {name} | {'with' if wp else 'without'} | {ok}/{len(rows)} | {wrong} | {none} | "
-                     f"{sum(r['sent_back'] for r in rows)} | {avg('tool_calls'):.1f} | {avg('seconds'):.0f} |")
+        fin = sum(r.get("right_after_reask", r["success"]) for r in rows)
+        tok = sum(tokens(r) for r in rows)
+        cost = sum(r["cost_usd"] or 0 for r in rows)
+        avg = lambda k: sum(r.get(k, 1) for r in rows) / len(rows)
+        per = lambda x: f"{x / fin:,.0f}" if fin else "-"
+        lines.append(f"| {name} | {'with' if wp else 'without'} | {ok}/{len(rows)} | {wrong} | {none} | {fin}/{len(rows)} | "
+                     f"{avg('asks'):.2f} | {tok / len(rows):,.0f} | {per(tok)} | "
+                     f"{('$%.4f' % (cost / fin)) if fin else '-'} | {sum(r['sent_back'] for r in rows)} |")
     for t in sorted({r["task"] for r in results}):
         for wp in (False, True):
             rows = [r for r in results if r["task"] == t and r["with_probe"] == wp]
@@ -306,8 +365,8 @@ def table(results, model, runs):
         vals = [r[key] for r in rows if r[key] is not None]
         return sum(vals) / len(vals) if vals else 0
     lines = [f"Model: {model}, {runs} runs per task and condition.", "",
-             "| Task | Probe | Success | Failed calls on a missing tool | Tool calls | Turns | Seconds |",
-             "| --- | --- | --- | --- | --- | --- | --- |"]
+             "| Task | Probe | Success | Failed calls on a missing tool | Tool calls | Turns | Seconds | Tokens | Cost |",
+             "| --- | --- | --- | --- | --- | --- | --- | --- | --- |"]
     for t in sorted({r["task"] for r in results}):
         for wp in (False, True):
             rows = [r for r in results if r["task"] == t and r["with_probe"] == wp]
@@ -316,13 +375,13 @@ def table(results, model, runs):
             ok = sum(r["success"] for r in rows)
             lines.append(f"| {t} | {'with' if wp else 'without'} | {ok}/{len(rows)} | "
                          f"{agg(rows,'failed_on_missing_tool'):.1f} | {agg(rows,'tool_calls'):.1f} | "
-                         f"{agg(rows,'turns'):.1f} | {agg(rows,'seconds'):.0f} |")
+                         f"{agg(rows,'turns'):.1f} | {agg(rows,'seconds'):.0f} | {sum(tokens(r) for r in rows) / len(rows):,.0f} | ${agg(rows,'cost_usd'):.4f} |")
     for wp in (False, True):
         rows = [r for r in results if r["with_probe"] == wp]
         ok = sum(r["success"] for r in rows)
         lines.append(f"| **all** | {'with' if wp else 'without'} | {ok}/{len(rows)} | "
                      f"{agg(rows,'failed_on_missing_tool'):.1f} | {agg(rows,'tool_calls'):.1f} | "
-                     f"{agg(rows,'turns'):.1f} | {agg(rows,'seconds'):.0f} |")
+                     f"{agg(rows,'turns'):.1f} | {agg(rows,'seconds'):.0f} | {sum(tokens(r) for r in rows) / len(rows):,.0f} | ${agg(rows,'cost_usd'):.4f} |")
     return "\n".join(lines)
 
 
