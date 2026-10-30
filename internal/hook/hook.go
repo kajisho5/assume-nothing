@@ -312,6 +312,17 @@ func PreToolUse(in Input) *Output {
 			l := lang(in.SessionID)
 			out = deny(missingReason(missing, st, l))
 			out.Notice = tr(l, "assume-nothing: 入っていないコマンドを止めました: ", "assume-nothing: stopped a command that is not installed: ") + strings.Join(missing, ", ") + tr(l, "。", ".")
+		} else if u := gate.UnreachableAfterInstall(cmd); u != nil && st.Denied["bin:"+u.Dir] == 0 {
+			// Stop once: the install would work, then the next command would
+			// fail with "command not found" because the folder is not on PATH.
+			st.Denied["bin:"+u.Dir]++
+			l := lang(in.SessionID)
+			full := filepath.Join(u.Dir, u.Name)
+			out = deny(fmt.Sprintf(tr(l,
+				"assume-nothing: %[1]s はコマンドを %[2]s に入れますが、このフォルダは PATH に入っていません。インストールは成功しても、続く %[3]s は「command not found」になります。\n%[4]s のようにフルパスで呼ぶか、PATH に %[2]s を足してから実行してください。同じコマンドをもう一度実行すれば、そのまま通します。",
+				"assume-nothing: %[1]s puts commands in %[2]s, which is not on PATH. The install will work, but the %[3]s after it will fail with \"command not found\".\nCall it by its full path (%[4]s) or add %[2]s to PATH first. Running the same command again lets it through."),
+				u.Manager, u.Dir, u.Name, full))
+			out.Notice = fmt.Sprintf(tr(l, "assume-nothing: インストール先が PATH にないため、%s を使う前に止めました。", "assume-nothing: stopped before %s: its install folder is not on PATH."), u.Name)
 		}
 	}
 	if err := save(st); err != nil {
