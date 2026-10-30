@@ -90,6 +90,10 @@ var Now = time.Now
 // save writes the session record; tests replace it to simulate a full disk.
 var save = store.Save
 
+// recheck checks timed-out languages again; tests replace it so that a slow
+// test machine does not change what they see.
+var recheck = probe.RetryLangs
+
 // Strict reports whether a broken probe should keep blocking tools.
 func Strict() bool {
 	switch strings.ToLower(os.Getenv("ASSUME_NOTHING_STRICT")) {
@@ -282,7 +286,7 @@ func PreToolUse(in Input) *Output {
 	// languages that timed out once more, with more time.
 	if !st.Rechecked {
 		st.Rechecked = true
-		if again := probe.RetryLangs(st.Facts); len(again) > 0 {
+		if again := recheck(st.Facts); len(again) > 0 {
 			st.SetFacts(again)
 			again = append(again, probe.VersionFacts(st.Cwd, st.Facts)...)
 			st.DropPrefix("ver.")
