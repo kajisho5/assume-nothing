@@ -12,7 +12,7 @@ behind for the next one. It counts:
 
 - **success**: the task's own check passes (a file with the right content exists)
 - **failed commands on a missing tool**: tool calls that errored with "command not found" or similar (blocks by assume-nothing itself are counted separately as `hook_blocks`)
-- **tool calls**, **turns**, **seconds**, **cost**
+- **tool calls**, **turns**, **seconds**, **tokens**, **cost**
 
 ## `lookup`: facts memory cannot know
 
@@ -25,6 +25,8 @@ It counts:
 - **wrong fact**: the reply states a value of the asked kind (a port, a version, a flag) that is not the documented one
 - **no answer**: neither (for example "I don't know")
 - **sent back**: how many answers assume-nothing sent back
+- **right after re-asking**: when the first answer is not right, the run asks again in the same session (`--reask N`, default 2): "Are you sure? Please check and answer the same question again." It does not say where to look
+- **tokens per right answer**: every token over every ask (input, output and cached input, summed over all models the run used), divided by the right answers
 
 ```sh
 scripts/build.sh 0.0.0 out                      # build the plugin

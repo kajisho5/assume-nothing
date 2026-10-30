@@ -193,41 +193,41 @@ It is off unless you add it, because it costs one small model call per answer. I
 
 ## Benchmark
 
-Same tasks, same model, with and without assume-nothing. Every task is a small fictional project. 10 runs per task and condition, Claude Code in headless mode, each run in a clean config with no other plugins, v0.14.0, 2026-10-30.
+Same tasks, same model, with and without assume-nothing. Every task is a small fictional project. 10 runs per task and condition, Claude Code in headless mode, each run in a clean config with no other plugins, v0.14.0, 2026-10-30. Tokens include cached input, which is most of them.
 
 **Tools that are not there.** Each project suggests a tool that is not installed (a `pnpm` lock file but only `npm`; a Makefile but no `make`; a README that says `python` but only `python3`; a media question without `ffprobe`).
 
-| Model | Plugin | Success | Failed commands on a missing tool (per task) | Tool calls (per task) |
-| --- | --- | --- | --- | --- |
-| Claude Haiku | without | 40/40 | 1.1 | 4.1 |
-| Claude Haiku | **with** | 40/40 | **0.0** | 3.5 |
-| Claude Sonnet | without | 40/40 | 0.7 | 2.9 |
-| Claude Sonnet | **with** | 40/40 | **0.0** | 2.8 |
-| Claude Opus | without | 40/40 | 0.7 | 3.1 |
-| Claude Opus | **with** | 40/40 | **0.0** | 2.7 |
-| Claude Fable | without | 40/40 | 0.6 | 4.0 |
-| Claude Fable | **with** | 40/40 | **0.0** | 4.5 |
+| Model | Plugin | Success | Failed commands on a missing tool (per task) | Tool calls (per task) | Tokens (per task) |
+| --- | --- | --- | --- | --- | --- |
+| Claude Haiku | without | 40/40 | 0.8 | 3.7 | 189k |
+| Claude Haiku | **with** | 40/40 | **0.0** | 3.7 | 174k |
+| Claude Sonnet | without | 40/40 | 0.7 | 3.0 | 155k |
+| Claude Sonnet | **with** | 40/40 | **0.0** | 2.8 | 124k |
+| Claude Opus | without | 40/40 | 0.7 | 3.0 | 162k |
+| Claude Opus | **with** | 40/40 | **0.0** | 3.2 | 156k |
+| Claude Fable | without | 40/40 | 0.8 | 4.2 | 195k |
+| Claude Fable | **with** | 40/40 | **0.0** | 4.4 | 188k |
 
-**Facts memory cannot know.** Three questions about fictional tools whose answers are only in the project's own docs (a vendored README, a CHANGELOG, a docs page). The prompt does not say where to look.
+**Facts memory cannot know.** Three questions about fictional tools whose answers are only in the project's own docs (a vendored README, a CHANGELOG, a docs page). The prompt does not say where to look. When the first answer was not right, the benchmark asked again in the same session, up to twice, the way a doubtful user would ("Are you sure? Please check and answer the same question again."), and counted every token on the way.
 
-| Model | Plugin | Right | Wrong fact | No answer |
-| --- | --- | --- | --- | --- |
-| Claude Haiku | without | 27/30 | 0 | 3 |
-| Claude Haiku | **with** | **29/30** | 0 | 1 |
-| Claude Sonnet | without | 19/30 | 3 | 8 |
-| Claude Sonnet | **with** | **30/30** | 0 | 0 |
-| Claude Opus | without | 27/30 | 0 | 3 |
-| Claude Opus | **with** | **30/30** | 0 | 0 |
-| Claude Fable | without | 30/30 | 0 | 0 |
-| Claude Fable | **with** | 30/30 | 0 | 0 |
+| Model | Plugin | Right first time | Wrong fact | No answer | Right after re-asking | Tokens per right answer |
+| --- | --- | --- | --- | --- | --- | --- |
+| Claude Haiku | without | 26/30 | 2 | 2 | 28/30 | 221k |
+| Claude Haiku | **with** | **30/30** | 0 | 0 | 30/30 | **147k** (−34%) |
+| Claude Sonnet | without | 16/30 | 4 | 10 | 22/30 | 448k |
+| Claude Sonnet | **with** | **30/30** | 0 | 0 | 30/30 | **142k** (−68%) |
+| Claude Opus | without | 28/30 | 0 | 2 | 30/30 | 165k |
+| Claude Opus | **with** | **30/30** | 0 | 0 | 30/30 | **152k** (−8%) |
+| Claude Fable | without | 30/30 | 0 | 0 | 30/30 | 161k |
+| Claude Fable | with | 30/30 | 0 | 0 | 30/30 | 165k (+3%) |
 
 Read it honestly:
 
-- Every task succeeded either way in the first suite. What changes is the path: with the probe, the agent stops trying commands that are not there.
-- Claude Fable answered every lookup question right without the plugin, so there the plugin added nothing. In the first suite it still stopped Fable's failed commands (0.6 → 0), but Fable made more tool calls with it (4.0 → 4.5), mostly on the pnpm task.
-- The one Haiku miss with the plugin was an honest "I could not confirm the flag", not a wrong fact. Without the plugin Sonnet stated a wrong flag 3 times out of 10.
-- In the second suite, most misses without the plugin were not wrong facts but giving up: on "what is the latest version of zorvexmark?" the public registries return 404, and the agent often stopped there. With the plugin it was told to look in the project first, found the vendored CHANGELOG, and answered right. The cost was a few more tool calls.
-- A version of the note that said only "look it up" made things worse (v0.10: Haiku 21/30 with the plugin): it sent the agent to the internet first. v0.11 says "this project first".
+- Every task in the first suite succeeded either way. What changes is the path: with the probe, no model tried a command that is not there. Tokens went down for all four, by 3% (Opus) to 20% (Sonnet).
+- In the second suite the gain depends on the model. Sonnet without the plugin often gave up or stated a wrong flag, and asking twice more still left 8 of 30 without a right answer, at three times the tokens. Fable got every answer right on its own, so there the plugin only cost a little.
+- Re-asking is done by an "oracle" that knows the answer is wrong. A real user may not know, and would keep the wrong answer.
+- Most misses without the plugin were giving up, not lying: on "what is the latest version of zorvexmark?" the public registries return 404 and the agent often stopped there. The plugin says "look in this project first", so it found the vendored CHANGELOG.
+- An earlier version of the note that said only "look it up" made things worse (v0.10: Haiku 21/30 with the plugin): it sent the agent to the internet first.
 - The tasks were built to contain traps, so do not expect the same numbers on everyday work. Per-task numbers, the raw results and the script are in [`evals/`](evals/); `python3 evals/run.py --plugin-dir <plugin> --suite lookup --model haiku --runs 10` reproduces them.
 
 **Live runs** (Claude Code, Claude Haiku): asked for the latest Bun, it answered 1.3.4 from memory, was sent back and corrected itself to 1.4.4; the text check caught a Node.js LTS claim; a request written in Japanese got Japanese notices throughout.
