@@ -76,8 +76,10 @@ func TestPreToolUseBlocksUntilProbed(t *testing.T) {
 	if !strings.Contains(out.HookSpecificOutput.PermissionDecisionReason, "CONFIRMED") {
 		t.Error("deny reason should carry the snapshot")
 	}
-	if out := event(t, "pre-tool-use", in); out != nil {
-		t.Fatalf("second call should pass silently, got %+v", out.HookSpecificOutput)
+	// The second call goes through. It may carry a note when a language check
+	// timed out on a busy machine and was checked again.
+	if out := event(t, "pre-tool-use", in); out != nil && (out.HookSpecificOutput.PermissionDecision == "deny" || !strings.Contains(out.HookSpecificOutput.AdditionalContext, "checked again")) {
+		t.Fatalf("second call should pass, got %+v", out.HookSpecificOutput)
 	}
 }
 
@@ -658,5 +660,28 @@ func TestOneSearchDoesNotCoverTwoNames(t *testing.T) {
 	out := event(t, "stop", map[string]any{"session_id": "two", "last_assistant_message": "lumen-kit has widgets; orbit-cli builds things."})
 	if out == nil || !strings.Contains(out.Reason, "orbit-cli") || strings.Contains(out.Reason, "lumen-kit,") {
 		t.Fatalf("expected only orbit-cli to be unlooked: %+v", out)
+	}
+}
+
+func TestLookupModes(t *testing.T) {
+	setup(t)
+	dir := project(t)
+	os.WriteFile(filepath.Join(dir, ".assume-nothing.json"), []byte(`{"lookup":"note","skip":["docker"]}`), 0o644)
+	event(t, "session-start", map[string]any{"session_id": "lm", "cwd": dir})
+	out := event(t, "user-prompt-submit", map[string]any{"session_id": "lm", "cwd": dir, "prompt": "what is lumen-kit"})
+	if out == nil || !strings.Contains(out.HookSpecificOutput.AdditionalContext, "lumen-kit") {
+		t.Fatalf("note mode should still note the name: %+v", out)
+	}
+	if out := event(t, "stop", map[string]any{"session_id": "lm", "cwd": dir, "last_assistant_message": "lumen-kit has 40 widgets."}); out != nil {
+		t.Fatalf("note mode sent back: %+v", out)
+	}
+	t.Setenv("ASSUME_NOTHING_LOOKUP", "off")
+	if out := event(t, "user-prompt-submit", map[string]any{"session_id": "lm", "cwd": dir, "prompt": "what is orbit-cli"}); out != nil {
+		t.Fatalf("off mode noted: %+v", out)
+	}
+	t.Setenv("ASSUME_NOTHING_LOOKUP", "send-back")
+	event(t, "user-prompt-submit", map[string]any{"session_id": "lm", "cwd": dir, "prompt": "what is nebula-dock"})
+	if out := event(t, "stop", map[string]any{"session_id": "lm", "cwd": dir, "last_assistant_message": "nebula-dock docks things."}); out == nil {
+		t.Fatal("the environment variable should win over the file")
 	}
 }

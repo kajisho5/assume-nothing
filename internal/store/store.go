@@ -35,6 +35,7 @@ type State struct {
 	Commands      map[string]string `json:"commands,omitempty"` // command name -> ok|missing|allowed
 	Denied        map[string]int    `json:"denied,omitempty"`   // command name -> times denied
 	ProbeFailures int               `json:"probe_failures,omitempty"`
+	Rechecked     bool              `json:"rechecked,omitempty"` // timed-out languages were checked again
 }
 
 // Fact returns the fact with the given key, if any.

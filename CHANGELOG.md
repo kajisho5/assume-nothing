@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.13.0] - 2026-10-30
+
+- Two layers, said plainly. The core (probe, command gate, version check) is exact and always on. The lookup check is a heuristic: `"lookup": "send-back"` (default), `"note"` (tell the agent what the request is about, never send back) or `"off"` in `.assume-nothing.json`, or `ASSUME_NOTHING_LOOKUP`.
+- A cold machine no longer leaves languages UNKNOWN for the whole session: languages whose version check timed out at the start are checked again, once, with more time, on the first tool call. Seen in this project's own cloud session (Go, Node, Java, Ruby, PHP and Rust all timed out at 2 seconds).
+- `"skip"` in `.assume-nothing.json` leaves languages, tools or package managers out of the probe.
+- More of the machine: Kotlin, Dart, Zig and Elixir; cmake, gcc and clang. Version checks read `volta.node` in `package.json`, and Java from `pom.xml` and Gradle builds.
+- A Japanese error page (「見つかりません」「アクセスが拒否」…) counts as a failed lookup.
+- `scripts/setup.ps1`: install for Cursor, OpenCode or a repository from PowerShell, without Git Bash. Tested on Windows in CI.
+- Docs: a demo of the lookup check (recorded run), Troubleshooting, a "how it works" table in Japanese, CONTRIBUTING, and issue templates for false alarms and misses.
+
 ## [0.12.0] - 2026-10-30
 
 - Japanese. When the request is written in Japanese, everything people read is in Japanese: the one-line notices, the send-back, the note about what the request is about, the "not installed" message, and `status`. `ASSUME_NOTHING_LANG=ja|en` fixes the language; otherwise the system locale decides until the first request.

@@ -57,6 +57,8 @@ var (
 	toolchainLine = regexp.MustCompile(`(?m)^toolchain\s+go([0-9][0-9.]*)\S*\s*$`)
 	requiresPy    = regexp.MustCompile(`(?m)^\s*requires-python\s*=\s*["']([^"']+)["']`)
 	rustChannel   = regexp.MustCompile(`(?m)^\s*channel\s*=\s*["']([^"']+)["']`)
+	mavenJava     = regexp.MustCompile(`<(?:maven\.compiler\.release|maven\.compiler\.source|java\.version|release)>\s*([0-9][0-9.]*)\s*</`)
+	gradleJava    = regexp.MustCompile(`JavaLanguageVersion\.of\(\s*([0-9]+)\s*\)|JavaVersion\.VERSION_([0-9]+(?:_[0-9]+)?)|sourceCompatibility\s*=\s*['"]?([0-9][0-9.]*)`)
 	toolVersions  = map[string][2]string{
 		"nodejs": {"lang.node", "node"}, "node": {"lang.node", "node"},
 		"python": {"lang.python", "python"}, "golang": {"lang.go", "go"}, "go": {"lang.go", "go"},
@@ -92,9 +94,15 @@ func Requirements(dir string) []Requirement {
 	if s, ok := readSmall(at("package.json")); ok {
 		var pj struct {
 			Engines map[string]string `json:"engines"`
+			Volta   map[string]string `json:"volta"`
 		}
-		if json.Unmarshal([]byte(s), &pj) == nil && pj.Engines["node"] != "" {
-			add("lang.node", "node", pj.Engines["node"], "package.json (engines.node)", "")
+		if json.Unmarshal([]byte(s), &pj) == nil {
+			if pj.Engines["node"] != "" {
+				add("lang.node", "node", pj.Engines["node"], "package.json (engines.node)", "")
+			}
+			if pj.Volta["node"] != "" {
+				add("lang.node", "node", pj.Volta["node"], "package.json (volta.node)", "")
+			}
 		}
 	}
 	if s, ok := readSmall(at(".python-version")); ok {
@@ -110,6 +118,23 @@ func Requirements(dir string) []Requirement {
 		}
 	} else if s, ok := readSmall(at("rust-toolchain")); ok {
 		add("lang.rust", "rust", firstWord(s), "rust-toolchain", "")
+	}
+	if s, ok := readSmall(at("pom.xml")); ok {
+		if m := mavenJava.FindStringSubmatch(s); m != nil {
+			v := strings.TrimPrefix(m[1], "1.") // 1.8 means 8
+			add("lang.java", "java", ">="+v, "pom.xml", "")
+		}
+	} else {
+		for _, f := range []string{"build.gradle.kts", "build.gradle"} {
+			if s, ok := readSmall(at(f)); ok {
+				if m := gradleJava.FindStringSubmatch(s); m != nil {
+					v := m[1] + m[2] + m[3]
+					v = strings.TrimPrefix(strings.ReplaceAll(v, "_", "."), "1.")
+					add("lang.java", "java", ">="+v, f, "")
+				}
+				break
+			}
+		}
 	}
 	if s, ok := readSmall(at(".ruby-version")); ok {
 		add("lang.ruby", "ruby", strings.TrimPrefix(firstWord(s), "ruby-"), ".ruby-version", "")

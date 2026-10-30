@@ -24,7 +24,9 @@ grep -q 'CONFIRMED' <<<"$out" || fail "deny lacks the probe: $out"
 
 # 2. the same call now goes through silently
 out=$(printf '{"session_id":"smoke-1","cwd":"%s","tool_name":"Read","tool_input":{}}' "$cwd_json" | run pre-tool-use) || fail "hook exited non-zero"
-[ -z "$out" ] || fail "second call not silent: $out"
+# (it may carry a note when a slow language was checked again)
+grep -q '"permissionDecision":"deny"' <<<"$out" && fail "second call denied: $out"
+[ -z "$out" ] || grep -q 'checked again' <<<"$out" || fail "second call not silent: $out"
 
 # 3. session start hands over the snapshot
 out=$(printf '{"session_id":"smoke-2","cwd":"%s","source":"startup"}' "$cwd_json" | run session-start) || fail "hook exited non-zero"

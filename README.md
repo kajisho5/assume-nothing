@@ -2,12 +2,21 @@
 
 **Your agent promised not to assume. Now it can't.**
 
-A plugin for Claude Code (and Codex CLI and Gemini CLI) that makes the agent look before it leaps:
+A plugin for Claude Code (and Cursor, Codex CLI, Gemini CLI and OpenCode) that makes the agent look before it leaps. It has two layers.
 
-1. **Probe first.** When a session starts, it checks the machine and the working folder and hands the agent a short list of facts: what is confirmed, what is not installed, and what is unknown.
+**The core: facts about the machine. Exact, always on.**
+
+1. **Probe first.** When a session starts, it checks the machine and the working folder and hands the agent a short list of facts: what is confirmed, what is not installed, what is unknown, and where the installed versions do not match what the project asks for.
 2. **No probe, no tools.** Until that probe exists, every tool call is stopped. The stop message carries the probe, so the agent reads it and goes on.
 3. **No phantom commands.** A shell command that is not installed is stopped before it runs, with the list of what *is* installed.
+
+These are checked, not guessed: a command is on PATH or it is not, a version matches or it does not.
+
+**The lookup check: facts about what you asked about. A heuristic, on by default, adjustable.**
+
 4. **No answers from memory about the thing you asked about.** Ask about `some-library` or `owner/repo`, and the agent is told it knows nothing about it yet. If it answers anyway without any tool having looked it up, the answer is sent back once: look it up, or say plainly what is not verified.
+
+This layer has to guess which words in a request are names and whether a tool call looked at them, so it can be wrong in both directions. Set `"lookup": "note"` to keep the note and never send back, or `"off"` (see [Configure](#configure)).
 
 ![Without vs with assume-nothing: the agent without it runs `python` and fails; with it, the probe says only `python3` exists and the first try works](docs/demo/demo.gif)
 
@@ -74,6 +83,8 @@ Every finished tool call is checked for those names (a page fetched, a search, a
 Questions about things that change ("the latest version", "the price", 「最新」「料金」) need a lookup even when no name was picked out, and a hedge does not excuse them the first time: memory is the wrong source for those. In a live run, Claude Haiku answered "Bun's latest is 1.3.4" from memory, was sent back, looked it up, and corrected itself to 1.4.4.
 
 What it picks up as a name: `owner/repo`, URLs, `hyphenated-names` and `dotted.names`, `backticked` names, quoted names in any script (「一太郎」, «Nebulina», 『별빛노트』), a Latin or katakana word (or one mixing kanji with them, like 秀丸エディタ) right before 「について」「とは」「を調べて」, Chinese 关于X / X是什么 and Korean X에 대해, and a word after "research", "look up", "what is". A name written only in kanji is picked up when quoted; unquoted it cannot be told from an ordinary word such as 原因. A plain word in a sentence is not taken, so "make it faster" names nothing.
+
+![Asked for the latest Bun, the agent answered 1.3.4 from memory, was sent back once, searched, and corrected itself to 1.4.4](docs/demo/demo-lookup.gif)
 
 Read it honestly: it checks that something was **looked at**, not that the answer is **right**. It is a nudge with teeth, not a fact checker. In live runs the note alone was usually enough: the agent searched first, or said up front that it was answering from memory.
 
@@ -149,6 +160,8 @@ Cloud sessions load a repository's hooks only when the session has that one repo
 curl -fsSL https://raw.githubusercontent.com/kajisho5/assume-nothing/main/scripts/setup.sh | sh -s cursor
 ```
 
+On Windows (PowerShell, no Git Bash needed): `& ([scriptblock]::Create((irm https://raw.githubusercontent.com/kajisho5/assume-nothing/main/scripts/setup.ps1))) cursor` (the same works with `opencode` and `repo`).
+
 This adds the hooks to `~/.cursor/hooks.json` for every project, next to any hooks you already have (`... | sh -s cursor --remove` takes them out). Cursor also runs hooks written for Claude Code, so a repository set up with `setup.sh repo` is covered in Cursor too, except the answer check, which needs Cursor's own `afterAgentResponse`.
 
 **OpenCode** (experimental)
@@ -208,19 +221,40 @@ On demand, the agent can run:
 
 ## Configure
 
-Add tools your project depends on to `.assume-nothing.json` in the project folder:
+Put `.assume-nothing.json` in the project folder:
 
 ```json
-{ "tools": ["blender", "ffprobe", "wrangler"] }
+{
+  "tools": ["blender", "ffprobe", "wrangler"],
+  "skip": ["docker"],
+  "lookup": "note"
+}
 ```
+
+| Key | Effect |
+| --- | --- |
+| `tools` | Extra tools to check at the start |
+| `skip` | Languages, tools or package managers to leave out of the probe |
+| `lookup` | The lookup check: `send-back` (default), `note` (tell the agent what the request is about, never send back), or `off` |
 
 | Variable | Effect |
 | --- | --- |
+| `ASSUME_NOTHING_LOOKUP=send-back`, `note` or `off` | The lookup check for this session (wins over the file) |
 | `ASSUME_NOTHING_STRICT=1` | Keep blocking when the probe record cannot be saved |
-| `ASSUME_NOTHING_TARGETS=0` | Turn off the lookup check (the environment probe still runs) |
+| `ASSUME_NOTHING_TARGETS=0` | Same as `ASSUME_NOTHING_LOOKUP=off` (older name) |
 | `ASSUME_NOTHING=off` | Turn every hook off for this session |
 | `ASSUME_NOTHING_LANG=ja` or `en` | Language of the messages people read (default: the language of the request, then the system locale) |
 | `ASSUME_NOTHING_DATA=<dir>` | Where probe records are kept (default: the plugin's data folder) |
+
+## Troubleshooting
+
+- **Is it running?** Ask the agent to run `assume-nothing status` (the path is on the probe's "Deeper checks" line, with `status` in place of `deep`). It lists what was probed, which commands were stopped, which names were looked up and how, and how many answers were sent back. No probe means the hooks are not running.
+- **Nothing happens in the Claude app.** Plain chat (no tools) never runs plugin hooks. In agentic sessions, check that the plugin uploaded to your account is the latest release; uploads do not update themselves.
+- **A language shows as UNKNOWN with "signal: killed".** The machine was slow at the start. The first tool call checks those languages again with more time.
+- **It stopped a command that does exist.** Run the same command again; the second time it goes through. If it is a project tool (`node_modules/.bin`, `.venv/bin`), the message says how to run it.
+- **The lookup check is too strict.** Set `"lookup": "note"` in `.assume-nothing.json`, or `ASSUME_NOTHING_LOOKUP=note`.
+- **Turn everything off for now:** `ASSUME_NOTHING=off`.
+- **Where the records are:** the plugin's data folder (`CLAUDE_PLUGIN_DATA`), or `ASSUME_NOTHING_DATA`. They are deleted after 30 days.
 
 ## Requirements
 

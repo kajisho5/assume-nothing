@@ -26,7 +26,7 @@ for target in darwin/arm64 darwin/amd64 linux/amd64 linux/arm64 windows/amd64 wi
 done
 
 cp -R "$root/.claude-plugin" "$root/hooks" "$root/scripts" "$root/skills" "$out/plugin/"
-rm -f "$out/plugin/.claude-plugin/marketplace.json" "$out/plugin/scripts/build.sh" "$out/plugin/scripts/smoke.sh" "$out/plugin/scripts/setup-repo.sh" "$out/plugin/scripts/setup.sh"
+rm -f "$out/plugin/.claude-plugin/marketplace.json" "$out/plugin/scripts/build.sh" "$out/plugin/scripts/smoke.sh" "$out/plugin/scripts/setup-repo.sh" "$out/plugin/scripts/setup.sh" "$out/plugin/scripts/setup.ps1"
 cp "$root/LICENSE" "$root/README.md" "$out/plugin/"
 
 # Codex reads the same hooks (it sets CLAUDE_PLUGIN_ROOT for compatibility);

@@ -109,6 +109,36 @@ func TargetsOff() bool {
 	return false
 }
 
+// Lookup modes for the lookup check (the second layer; the probe and the
+// command gate are the first and are always on).
+const (
+	LookupSendBack = "send-back" // note the names, send an unlooked answer back once
+	LookupNote     = "note"      // only note the names; never send back
+	LookupOff      = "off"
+)
+
+// lookupMode reads ASSUME_NOTHING_LOOKUP, then ASSUME_NOTHING_TARGETS=0, then
+// "lookup" in the project's .assume-nothing.json.
+func lookupMode(cwd string) string {
+	switch m := strings.ToLower(os.Getenv("ASSUME_NOTHING_LOOKUP")); m {
+	case LookupSendBack, LookupNote, LookupOff:
+		return m
+	}
+	if TargetsOff() {
+		return LookupOff
+	}
+	if cwd == "" {
+		cwd = os.Getenv("CLAUDE_PROJECT_DIR")
+	}
+	if cwd != "" {
+		switch m := strings.ToLower(probe.LoadConfig(cwd).Lookup); m {
+		case LookupNote, LookupOff:
+			return m
+		}
+	}
+	return LookupSendBack
+}
+
 // lang is the language for messages people read: "ja" or "" (English).
 // ASSUME_NOTHING_LANG=ja|en wins; otherwise the language of the latest
 // request; otherwise the system locale.
@@ -248,6 +278,18 @@ func PreToolUse(in Input) *Output {
 	}
 
 	var notes []string
+	// A cold machine can be too slow for the 2-second start probe; check the
+	// languages that timed out once more, with more time.
+	if !st.Rechecked {
+		st.Rechecked = true
+		if again := probe.RetryLangs(st.Facts); len(again) > 0 {
+			st.SetFacts(again)
+			again = append(again, probe.VersionFacts(st.Cwd, st.Facts)...)
+			st.DropPrefix("ver.")
+			st.SetFacts(probe.VersionFacts(st.Cwd, st.Facts))
+			notes = append(notes, "assume-nothing: languages whose version check timed out at start were checked again:\n"+render.Facts(again))
+		}
+	}
 	cwd := cwdOf(in)
 	if cwd != "" && cwd != st.Cwd {
 		ctx, cancel := context.WithTimeout(context.Background(), probe.Budget)
@@ -459,7 +501,7 @@ func UserPromptSubmit(in Input) *Output {
 		}
 		notes = append(notes, render.Snapshot(st, DeepCommand))
 	}
-	if !TargetsOff() {
+	if lookupMode(cwdOf(in)) != LookupOff {
 		ts := target.Extract(in.Prompt)
 		if lg, ok := targetLog(in.SessionID); ok {
 			// A request that names nothing is still recorded once targets exist,
@@ -555,7 +597,7 @@ func SubagentStop(in Input) *Output {
 }
 
 func stopCheck(in Input, scope, event string) *Output {
-	if in.StopActive || TargetsOff() {
+	if in.StopActive || lookupMode(cwdOf(in)) != LookupSendBack {
 		return nil // already sent back once (trust it now), or turned off
 	}
 	msg := in.LastMessage
